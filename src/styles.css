@@ -345,3 +345,4 @@ h1, h2, h3, p { margin: 0; }
 @keyframes nudge { 50% { transform: translateY(5px); } }
 .boot-msg { max-width: 280px; text-align: center; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .spin, .ios-arrow i { animation: none; } }
+.guide .steps { padding-left: 0; margin: 0; }

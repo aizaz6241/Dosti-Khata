@@ -1016,3 +1016,5 @@ body[data-mode="dosti"] .acc-opt.add { border-color: #A9CDBE; }
 .payout .key-box, .payout .dev { display: grid; gap: 8px; }
 .code { display: block; background: #121A2E; color: #D7E0FF; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; border-radius: 12px; padding: 10px 12px; word-break: break-all; white-space: pre-wrap; user-select: all; }
 .more-grid { grid-template-columns: repeat(3, 1fr); }
+.tx-tot b { font-size: clamp(13px, 3.7vw, 16px); overflow: visible; text-overflow: clip; letter-spacing: -0.01em; }
+.tx-tot div { padding: 10px 9px; min-width: 0; }

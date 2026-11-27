@@ -64,7 +64,16 @@ const COLS = {
     clean(b) {
       const rates = {};
       for (const c of CURRENCIES) if (c !== 'PKR' && Number(b.rates?.[c]) > 0) rates[c] = round(b.rates[c]);
-      return { rates };
+      const manual = Array.isArray(b.manual) ? CURRENCIES.filter((c) => c !== 'PKR' && b.manual.includes(c)) : [];
+      return { rates, manual };
+    },
+  },
+  // Dosti khata ki entry kis account se gayi / mein aayi (sirf aap ko pata)
+  links: {
+    clean(b) {
+      const entryId = str(b.entryId, 64); const accountId = str(b.accountId, 64);
+      if (!entryId || !accountId) throw bad('Account chuno.');
+      return { entryId, accountId };
     },
   },
 };
@@ -80,8 +89,8 @@ export function personalRoutes(app, store, onChange) {
   app.get('/api/me/data', async (req, res, next) => {
     try {
       const me = req.me;
-      const [accounts, ptx, contacts, prefs] = await Promise.all(['accounts', 'ptx', 'contacts', 'prefs'].map((c) => store[c].all({ owner: me })));
-      res.json({ accounts, ptx, contacts, prefs: prefs[0] || { rates: {} } });
+      const [accounts, ptx, contacts, prefs, links] = await Promise.all(['accounts', 'ptx', 'contacts', 'prefs', 'links'].map((c) => store[c].all({ owner: me })));
+      res.json({ accounts, ptx, contacts, links, prefs: prefs[0] || { rates: {}, manual: [] } });
     } catch (e) { next(e); }
   });
 
@@ -129,7 +138,8 @@ export function personalRoutes(app, store, onChange) {
       // Jis account ya bande ke len-den hon, woh mitaya nahi, chhupaya jata hai (hisaab kharab na ho)
       if (col === 'accounts' || col === 'contacts') {
         const field = col === 'accounts' ? ['accountId', 'toAccountId'] : ['contactId'];
-        const used = (await store.ptx.all({ owner: req.me })).some((t) => field.some((f) => t[f] === key || t[f] === String(row._id)));
+        const used = (await store.ptx.all({ owner: req.me })).some((t) => field.some((f) => t[f] === key || t[f] === String(row._id)))
+          || (col === 'accounts' && (await store.links.all({ owner: req.me })).some((l) => l.accountId === key || l.accountId === String(row._id)));
         if (used) { await store[col].update(String(row._id), { archived: true }); onChange(req.me); return res.json({ ok: true, archived: true }); }
       }
       await store[col].remove(String(row._id));

@@ -8,6 +8,7 @@ import { setupPush } from './push.js';
 import { snapshot, diff, shareOf } from './activity.js';
 import { createAI } from './ai.js';
 import { personalRoutes } from './personal.js';
+import { createRates } from './rates.js';
 import { UTApi, UTFile } from 'uploadthing/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -199,6 +200,11 @@ personalRoutes(app, store, (me) => broadcast('mine', { at: Date.now() }, me));
 /* ---------------- AI: bol kar / likh kar entry ---------------- */
 // AI sirf form bharne ki tajweez deta hai. Yahan se kuch save nahi hota.
 app.get('/api/ai/status', (_req, res) => res.json({ enabled: ai.enabled }));
+// Live currency rate (USDT: Binance P2P bechne ka rate)
+const liveRates = process.env.RATES_FAKE // sirf local test ke liye
+  ? { get: async () => ({ rates: JSON.parse(process.env.RATES_FAKE), sources: { USDT: 'Binance P2P' }, at: Date.now() }) }
+  : createRates();
+app.get('/api/rates', async (_req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.json(await liveRates.get()); } catch (e) { next(e); } });
 app.post('/api/ai/parse', async (req, res, next) => {
   try {
     const { audio, mime, text, today } = req.body || {};

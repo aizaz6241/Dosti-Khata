@@ -13,12 +13,14 @@ const lastMonths = (n) => {
   return out;
 };
 
-export async function exportPdf({ name, mine, balances, people, worth, shared, me, names }) {
+export async function exportPdf({ name, mine, balances, people, worth, shared, me, names, rates: liveRates, spend = [], allTx }) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const pine = [15, 61, 51];
-  const rates = mine.prefs?.rates || {};
+  const rates = liveRates || mine.prefs?.rates || {};
+  const other = names[Object.keys(names).find((k) => k !== me)];
+  const txAll = allTx || mine.ptx;
   let y = 0;
   const head = (t) => {
     y = (doc.lastAutoTable?.finalY || y) + 26;
@@ -47,7 +49,7 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
   doc.setFont('helvetica', 'bold'); doc.text(`Kul paisa (sab accounts): ${fmt(worth.pkr)}`, 40, y);
   doc.setFont('helvetica', 'normal');
   doc.text(`Logon par mere: ${fmt(owe)}    Mujh par logon ke: ${fmt(owed)}`, 40, y + 16);
-  if (shared?.balance?.amount) doc.text(`Abdullah ke saath khata: ${shared.balance.from === me ? `maine ${fmt(shared.balance.amount)} dene hain` : `mujhe ${fmt(shared.balance.amount)} milne hain`}`, 40, y + 32);
+  if (shared?.balance?.amount) doc.text(`${other} ke saath khata: ${shared.balance.from === me ? `maine ${fmt(shared.balance.amount)} dene hain` : `mujhe ${fmt(shared.balance.amount)} milne hain`}`, 40, y + 32);
   if (Object.keys(rates).length) doc.text(`Rate: ${Object.entries(rates).map(([c, r]) => `1 ${c} = Rs ${r}`).join(', ')}`, 40, y + 48);
   y += 56;
 
@@ -59,12 +61,12 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
 
   head('Pichle 6 mahine');
   const months = lastMonths(6);
-  table(['Mahina', 'Kharcha', 'Aamdani', 'Bacha', 'Qarz diya', 'Wapas mila'], months.map((m) => {
-    const r = monthReport(mine.ptx, mine.accounts, m, rates);
-    return [m, fmt(r.spent), fmt(r.income), fmt(r.saved), fmt(r.lent), fmt(r.gotBack)];
+  table(['Mahina', 'Kharcha', `Is mein ${other} khata`, 'Aamdani', 'Bacha', 'Qarz diya', 'Wapas mila'], months.map((m) => {
+    const r = monthReport(mine.ptx, mine.accounts, m, rates, spend);
+    return [m, fmt(r.spent), fmt(r.khata), fmt(r.income), fmt(r.saved), fmt(r.lent), fmt(r.gotBack)];
   }));
 
-  const r0 = monthReport(mine.ptx, mine.accounts, months[0], rates);
+  const r0 = monthReport(mine.ptx, mine.accounts, months[0], rates, spend);
   head(`Is mahine (${months[0]}) kis cheez par kharcha`);
   const cats = Object.entries(r0.byCat).sort((a, b) => b[1] - a[1]);
   table(['Qisam', 'Raqam', 'Hissa'], cats.length ? cats.map(([c, v]) => [EXPENSE.find((x) => x.id === c)?.label || c, fmt(v), `${Math.round((v / (r0.spent || 1)) * 100)}%`]) : [['Is mahine koi kharcha nahi', '', '']]);
@@ -86,17 +88,17 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
 
   head('Mere saare len-den');
   const acc = (id) => mine.accounts.find((a) => idOf(a) === id);
-  const tx = [...mine.ptx].sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+  const tx = [...txAll].sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
   table(['Tareekh', 'Qisam', 'Kahan / kis se', 'Raqam', 'Note'], tx.length ? tx.map((t) => {
     const a = acc(t.accountId); const cur = a?.currency || 'PKR';
     const who = mine.contacts.find((c) => idOf(c) === t.contactId)?.name;
     const where = t.type === 'transfer' ? `${a?.name || '?'} > ${acc(t.toAccountId)?.name || '?'}` : [a?.name, who].filter(Boolean).join(', ');
     const sign = t.type === 'transfer' ? '' : (TYPES[t.type]?.sign || Math.sign(t.amount)) > 0 ? '+' : '-';
-    return [`${t.date} ${t.time || ''}`, t.type === 'expense' || t.type === 'income' ? catMeta(t).label : TYPES[t.type].label, where, `${sign}${fmt(Math.abs(t.amount), cur)}`, t.note || ''];
+    const kind = t.type === 'expense' || t.type === 'income' ? catMeta(t).label : t.synthetic ? `${other} khata` : TYPES[t.type].label;
+    return [`${t.date} ${t.time || ''}`, kind, where, `${sign}${fmt(Math.abs(t.amount), cur)}`, t.note || ''];
   }) : [['Abhi koi len-den nahi', '', '', '', '']], { columnStyles: { 3: { halign: 'right' } } });
 
   if (shared?.entries?.length) {
-    const other = names[Object.keys(names).find((k) => k !== me)];
     head(`${other} ke saath khata (sirf mera hissa)`);
     const rows = shared.entries.filter(visible(me)).map((e) => {
       const v = view(e, me, names);

@@ -13,7 +13,7 @@ const whenAt = (iso) => {
   return `${dayLabel(day)}, ${h}:${String(d.getMinutes()).padStart(2, '0')} ${ap}`;
 };
 
-export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen, onConfirm }) {
+export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen, onConfirm, extra }) {
   const [zoom, setZoom] = useState(false);
   const c = e.calc;
   const isPay = e.type === 'payment';
@@ -118,6 +118,7 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
         </section>
       )}
 
+      {extra}
       {canEdit ? (
         <button className="btn ghost wide" onClick={onEdit}><Pencil size={16} /> Entry badlo</button>
       ) : (

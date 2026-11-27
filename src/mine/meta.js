@@ -2,7 +2,7 @@
 import {
   Utensils, ShoppingBasket, Coffee, House, Receipt, Car, Fuel, Shirt, Pill, Scissors, HeartHandshake, GraduationCap,
   MonitorSmartphone, Gift, Plane, CircleDot, Briefcase, Laptop, Store, RotateCcw, Wallet, Landmark, Smartphone, Bitcoin,
-  PiggyBank, ArrowLeftRight, HandCoins, Undo2, ArrowDownLeft, ArrowUpRight, SlidersHorizontal,
+  PiggyBank, ArrowLeftRight, HandCoins, Undo2, ArrowDownLeft, ArrowUpRight, SlidersHorizontal, Users,
 } from 'lucide-react';
 
 export const EXPENSE = [
@@ -59,6 +59,8 @@ export const TYPES = {
   got_back: { label: 'Wapas mila', icon: Undo2, sign: 1 },
   paid_back: { label: 'Wapas diya', icon: Undo2, sign: -1 },
   adjust: { label: 'Balance theek kiya', icon: SlidersHorizontal, sign: 1 },
+  khata_out: { label: 'Dosti khata', icon: Users, sign: -1 },
+  khata_in: { label: 'Dosti khata', icon: Users, sign: 1 },
 };
 
 export const catMeta = (t) => {
@@ -71,7 +73,9 @@ export const kindMeta = (k) => KINDS.find((x) => x.id === k) || KINDS.at(-1);
 export const money = (n, cur = 'PKR') => {
   const v = Number(n) || 0;
   const s = Math.abs(v) >= 1000 || Number.isInteger(v) ? Math.round(v).toLocaleString('en-PK') : v.toLocaleString('en-PK', { maximumFractionDigits: 2 });
-  return cur === 'PKR' ? `Rs ${s}` : `${s} ${cur}`;
+  const neg = v < 0 && s !== '0' ? '-' : '';
+  const a = neg ? s.replace('-', '') : s;
+  return cur === 'PKR' ? `${neg}Rs ${a}` : `${neg}${a} ${cur}`;
 };
 export const moneyExact = (n, cur = 'PKR') => {
   const s = (Number(n) || 0).toLocaleString('en-PK', { maximumFractionDigits: 2 });

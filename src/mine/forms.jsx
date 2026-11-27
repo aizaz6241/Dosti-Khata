@@ -263,20 +263,38 @@ export function ContactForm({ initial, onSave, onDelete }) {
   );
 }
 
-export function RatesForm({ prefs, accounts, onSave }) {
+export function RatesForm({ prefs, accounts, live, onSave }) {
   const used = useMemo(() => [...new Set(accounts.filter((a) => !a.archived && a.currency !== 'PKR').map((a) => a.currency))], [accounts]);
   const [rates, setRates] = useState(() => ({ ...(prefs?.rates || {}) }));
+  const [manual, setManual] = useState(() => [...(prefs?.manual || [])]);
   if (!used.length) return <p className="hint">Abhi sab accounts rupay (PKR) mein hain. Rate ki zaroorat nahi.</p>;
+  const ago = (at) => { if (!at) return ''; const m = Math.round((Date.now() - at) / 60000); return m < 1 ? 'abhi abhi' : m < 60 ? `${m} min pehle` : `${Math.round(m / 60)} ghante pehle`; };
   return (
-    <form className="form" onSubmit={(e) => { e.preventDefault(); onSave({ rates }); }}>
-      <p className="hint">Kul paisa rupay mein dikhane ke liye aaj ka rate likho.</p>
-      {used.map((c) => (
-        <label key={c} className="custom-one">
-          <span>1 {c} = kitne rupay?</span>
-          <input inputMode="decimal" value={rates[c] ?? ''} placeholder={c === 'USDT' ? 'jaise 282' : '0'} onChange={(e) => setRates({ ...rates, [c]: e.target.value.replace(/[^\d.]/g, '') })} />
-        </label>
-      ))}
-      <button className="btn primary"><Check size={17} /> Rate save karo</button>
+    <form className="form" onSubmit={(e) => { e.preventDefault(); onSave({ rates, manual }); }}>
+      {used.map((c) => {
+        const lv = live?.rates?.[c]; const isManual = manual.includes(c) || !lv;
+        return (
+          <div key={c} className="rate-box">
+            <div className="seg two" role="radiogroup">
+              <button type="button" className={'seg-opt plain' + (!manual.includes(c) ? ' on' : '')} onClick={() => setManual(manual.filter((x) => x !== c))}>Live rate</button>
+              <button type="button" className={'seg-opt plain' + (manual.includes(c) ? ' on' : '')} onClick={() => setManual([...new Set([...manual, c])])}>Khud likhunga</button>
+            </div>
+            {!manual.includes(c) && (lv ? (
+              <>
+                <p className="rate-big"><i className="live-dot" /> 1 {c} = Rs {lv.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</p>
+                <p className="rate-src">{live.sources?.[c] === 'Binance P2P' ? 'Binance P2P par bechne (sell) ka rate' : live.sources?.[c]}, {ago(live.at)}. Har kuch minute baad khud badalta hai.</p>
+              </>
+            ) : <p className="rate-src">Live rate abhi nahi mila (net check karo). Tab tak neeche likha rate chalega.</p>)}
+            {isManual && (
+              <label className="custom-one">
+                <span>1 {c} = kitne rupay?</span>
+                <input inputMode="decimal" value={rates[c] ?? ''} placeholder={c === 'USDT' ? 'jaise 282' : '0'} onChange={(e) => setRates({ ...rates, [c]: e.target.value.replace(/[^\d.]/g, '') })} />
+              </label>
+            )}
+          </div>
+        );
+      })}
+      <button className="btn primary"><Check size={17} /> Save karo</button>
     </form>
   );
 }

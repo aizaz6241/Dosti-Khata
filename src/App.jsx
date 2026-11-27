@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History, Mic, Wallet, ArrowDownLeft, ArrowLeftRight } from 'lucide-react';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, RefreshCw, History, Mic, ArrowDownLeft, ArrowLeftRight, CalendarDays, Landmark, Users, Undo2 } from 'lucide-react';
 import { api, LS, thisMonth, haptic, nowTime } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
 import { useKhata, applyQueue, applyMine, newId } from './sync';
-import { accountBalances, peopleLedger, netWorth, monthReport, toPKR, idOf } from '../server/money.js';
-import MeraScreen, { AllTxns, AccountDetail, ContactDetail } from './mine/MeraScreen';
+import { accountBalances, peopleLedger, netWorth, monthReport, toPKR, idOf, sharedSpend, khataFlows, effectiveRates, flowOf } from '../server/money.js';
+import { MeraHome, MeraAccounts, MeraAnalytics, MeraPeople, AllTxns, AccountDetail, ContactDetail } from './mine/MeraScreen';
+import AccountLink from './mine/AccountLink';
+import ModeSwitch from './components/ModeSwitch';
 import { TxnForm, AccountForm, ContactForm, RatesForm } from './mine/forms';
 import { usePush } from './push';
 import { chime } from './chime';
@@ -27,7 +29,16 @@ export default function App() {
   const [people, setPeople] = useState(LS.get('khata.people', DEFAULT_PEOPLE));
   const [month, setMonth] = useState(thisMonth());
   const [khataMonth, setKhataMonth] = useState(thisMonth());
-  const [tab, setTab] = useState('home');
+  const [mode, setModeRaw] = useState(LS.get('khata.mode', 'dosti')); // 'dosti' (saanjha khata) ya 'mera' (apna paisa)
+  const [tabs2, setTabs2] = useState({ dosti: 'home', mera: 'home' });
+  const tab = tabs2[mode];
+  const setTab = (id) => setTabs2((t) => ({ ...t, [mode]: id }));
+  const setMode = (m) => { if (m === mode) return; haptic(10); setModeRaw(m); LS.set('khata.mode', m); window.scrollTo({ top: 0 }); };
+  const [live, setLive] = useState(LS.get('khata.rates', null)); // live currency rate
+  useEffect(() => { // rang: Mera neela, Dosti hara
+    document.body.dataset.mode = token ? mode : 'dosti';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', token && mode === 'mera' ? '#1E2878' : '#0F3D33');
+  }, [mode, token]);
   const [sheet, setSheet] = useState(null);
   const [batch, setBatch] = useState(null); // AI ki kai entries, save se pehle
   const [busy, setBusy] = useState(false);
@@ -45,7 +56,7 @@ export default function App() {
   const pushRef = useRef(null);
   const logout = useCallback(() => {
     pushRef.current?.disable?.().catch?.(() => {});
-    ['khata.token', 'khata.rows', 'khata.me', 'khata.activity', 'khata.seenAct', 'khata.mine'].forEach(LS.del);
+    ['khata.token', 'khata.rows', 'khata.me', 'khata.activity', 'khata.seenAct', 'khata.mine', 'khata.lastAcc'].forEach(LS.del);
     setToken(null); setMe(null);
   }, []);
 
@@ -68,17 +79,20 @@ export default function App() {
       const h = hist[e.clientId || e._id] || [];
       return { ...e, history: h, edits: h.filter((a) => a.action === 'update') };
     });
-    return { people, me, ...ledger, entries, activity, stats: monthStats(rows, ids, month), homeStats: monthStats(rows, ids, thisMonth()), months };
+    return { people, me, rows, ...ledger, entries, activity, stats: monthStats(rows, ids, month), homeStats: monthStats(rows, ids, thisMonth()), months };
   }, [sync.rows, sync.activity, sync.queue, me, ids, people, month]);
   const [seenAct, setSeenAct] = useState(LS.get('khata.seenAct', 0));
-  const [khataView, setKhataView] = useState('list');
   const [meraMonth, setMeraMonth] = useState(thisMonth());
 
-  // Mera Hisaab: phone par hi hisaab (offline bhi)
+  // Mera Hisaab: phone par hi hisaab (offline bhi). Dosti khata bhi is mein gina jata hai.
   const mera = useMemo(() => {
     const mine = applyMine(sync.mine, sync.queue, me);
-    const rates = mine.prefs?.rates || {};
-    const balances = accountBalances(mine.accounts, mine.ptx);
+    const rates = effectiveRates(mine.prefs, live?.rates);
+    const rows = data?.rows || [];
+    const flows = khataFlows(mine.links, rows, me); // khate ki entries jo kisi account se judi hain
+    const allTx = [...mine.ptx, ...flows];
+    const spend = sharedSpend(rows, me); // khate mein mera hissa = mera kharcha
+    const balances = accountBalances(mine.accounts, allTx);
     const people = peopleLedger(mine.contacts.filter((c) => !c.archived), mine.ptx, mine.accounts);
     const worth = netWorth(mine.accounts, balances, rates);
     let owedToMe = 0, iOwe = 0;
@@ -86,8 +100,25 @@ export default function App() {
       const pk = toPKR(v, cur, rates) ?? 0;
       if (pk > 0) owedToMe += pk; else iOwe += -pk;
     }
-    return { mine, rates, balances, people, worth, owedToMe, iOwe, report: monthReport(mine.ptx, mine.accounts, meraMonth, rates) };
-  }, [sync.mine, sync.queue, me, meraMonth]);
+    const b = data?.balance;
+    if (b?.amount > 0) { if (b.from === me) iOwe += b.amount; else owedToMe += b.amount; }
+    const linkOf = Object.fromEntries(mine.links.map((l) => [String(l.entryId), l.accountId]));
+    const reportFor = (m) => monthReport(mine.ptx, mine.accounts, m, rates, spend);
+    return { mine, rates, balances, people, worth, owedToMe, iOwe, allTx, spend, linkOf, reportFor, report: reportFor(meraMonth) };
+  }, [sync.mine, sync.queue, me, meraMonth, live, data]);
+
+  // Live rate (USDT: Binance P2P) — jab koi doosri currency ka account ho
+  const needLive = mera.mine.accounts.some((a) => !a.archived && a.currency && a.currency !== 'PKR');
+  useEffect(() => {
+    if (!token || !needLive) return;
+    let stop = false;
+    const get = () => { if (document.visibilityState !== 'visible' || !navigator.onLine) return; api('/rates').then((r) => { if (!stop && r?.rates) { setLive(r); LS.set('khata.rates', r); } }).catch(() => {}); };
+    get();
+    const t = setInterval(get, 3 * 60e3);
+    const v = () => get();
+    document.addEventListener('visibilitychange', v);
+    return () => { stop = true; clearInterval(t); document.removeEventListener('visibilitychange', v); };
+  }, [token, needLive]);
   useEffect(() => { // naam server se (agar badle hon)
     api('/people').then((r) => { setPeople(r.people); LS.set('khata.people', r.people); }).catch(() => {});
   }, []);
@@ -95,7 +126,7 @@ export default function App() {
   // App icon ko daba kar shortcut (Naya kharcha / Paise bheje)
   useEffect(() => {
     const add = new URLSearchParams(location.search).get('add');
-    if (['expense', 'payment', 'loan'].includes(add)) { setSheet({ kind: add }); history.replaceState(null, '', '/'); }
+    if (['expense', 'payment', 'loan'].includes(add)) { setModeRaw('dosti'); setSheet({ kind: add }); history.replaceState(null, '', '/'); }
   }, []);
 
   useEffect(() => {
@@ -128,8 +159,17 @@ export default function App() {
 
   // Save foran phone par, phir server par (net na ho to baad mein khud)
   const keyOf = (e) => e.clientId || e._id;
-  const save = async (body, entry) => {
-    await sync.enqueue(entry ? { kind: 'update', key: keyOf(entry), body } : { kind: 'create', key: newId(), body });
+  // Khate ki entry ko mere account se jodo / alag karo (sirf mere liye)
+  const setLink = async (entryKey, accountId) => {
+    const key = 'lnk-' + entryKey;
+    if (accountId) { LS.set('khata.lastAcc', accountId); await sync.enqueue({ col: 'links', kind: 'create', key, body: { entryId: entryKey, accountId } }); }
+    else if (mera.linkOf[entryKey]) await sync.enqueue({ col: 'links', kind: 'delete', key });
+  };
+  const save = async (raw, entry) => {
+    const { _link, ...body } = raw;
+    const key = entry ? keyOf(entry) : newId();
+    await sync.enqueue(entry ? { kind: 'update', key, body } : { kind: 'create', key, body });
+    if (_link !== undefined) await setLink(key, _link);
     haptic(12);
     setSheet(null);
     const msg = entry ? 'Tabdeeli save ho gayi' : { payment: 'Payment save ho gayi', loan: 'Qarz save ho gaya', expense: 'Kharcha save ho gaya' }[body.type];
@@ -154,6 +194,7 @@ export default function App() {
   };
   const remove = async (entry) => {
     await sync.enqueue({ kind: 'delete', key: keyOf(entry) });
+    if (mera.linkOf[keyOf(entry)]) await setLink(keyOf(entry), '');
     setSheet(null);
     say(navigator.onLine ? 'Entry delete ho gayi' : 'Delete ho gayi. Net aate hi sync hogi');
   };
@@ -166,6 +207,11 @@ export default function App() {
     } finally { setBusy(false); }
   };
 
+  const unread = data ? data.activity.filter((a) => a.by !== me && new Date(a.at).getTime() > seenAct).length : 0;
+  useEffect(() => { // Badlav dekh liye
+    if (mode === 'dosti' && tab === 'activity' && unread) { const t = Date.now(); setSeenAct(t); LS.set('khata.seenAct', t); }
+  }, [mode, tab, unread]);
+
   if (!token || !me) return <Lock people={people} colors={COLORS} onLogin={login} error={loginErr} busy={busy} />;
   if (!data && !sync.online) return <div className="boot"><p className="boot-msg">Pehli dafa ke liye internet chahiye. Net on kar ke dobara kholo.</p></div>;
   if (!data) return <div className="boot"><span className="spinner" /></div>;
@@ -174,46 +220,44 @@ export default function App() {
   const open = (e) => setSheet({ kind: 'detail', entry: byId[e._id] || e });
   const pending = sync.queue.length;
   const byKey = Object.fromEntries(data.entries.map((e) => [e.clientId || e._id, e]));
-  const unread = data.activity.filter((a) => a.by !== me && new Date(a.at).getTime() > seenAct).length;
-  const openActivity = () => { setTab('activity'); const t = Date.now(); setSeenAct(t); LS.set('khata.seenAct', t); };
   const add = (kind, opts = {}) => { haptic(); setSheet({ kind, ...opts }); };
   const balance = data.balance;
   const common = { me, otherId, names, colors: COLORS };
 
-  const screens = {
+  const otherName = names[otherId];
+  const goShared = () => { setMode('dosti'); setTabs2((t) => ({ ...t, dosti: 'khata' })); };
+  const openTxn = (t) => (t.synthetic ? (byKey[t.entryId] ? open(byKey[t.entryId]) : null) : setSheet({ kind: 'ptx', row: t }));
+  const pdf = async () => {
+    say('PDF ban raha hai...');
+    try {
+      const { exportPdf } = await import('./mine/pdf.js');
+      const r = await exportPdf({ name: names[me], mine: mera.mine, balances: mera.balances, people: mera.people, worth: mera.worth, shared: data, me, names, rates: mera.rates, spend: mera.spend, allTx: mera.allTx });
+      if (r !== 'cancel') say(r === 'shared' ? 'PDF tayyar' : 'PDF download ho gaya');
+    } catch (e) { say('PDF nahi bana: ' + e.message); }
+  };
+  const mcommon = { mine: mera.mine, otherName, rates: mera.rates, live, onRates: () => setSheet({ kind: 'rates' }), onNewAccount: () => setSheet({ kind: 'account-edit' }), onOpenAccount: (a) => setSheet({ kind: 'account', row: a }), onAdd: (type) => setSheet({ kind: 'ptx', preset: { type } }) };
+
+  const screens = mode === 'dosti' ? {
     home: <Home data={data} {...common} onAdd={add} onOpen={open} goKhata={() => setTab('khata')}
       canInstall={!standalone && !installHidden} onInstall={install}
       onDismissInstall={() => { setInstallHidden(true); LS.set('khata.installHidden', true); }}
       onConfirm={confirm}
       canNotify={pushState.supported && !pushState.on && !LS.get('khata.notifyHidden')} onNotify={notifyToggle} />,
-    khata: (
-      <>
-        <div className="view-toggle" role="tablist">
-          <button role="tab" aria-selected={khataView === 'list'} className={khataView === 'list' ? 'on' : ''} onClick={() => setKhataView('list')}>Entries</button>
-          <button role="tab" aria-selected={khataView === 'month'} className={khataView === 'month' ? 'on' : ''} onClick={() => setKhataView('month')}>Mahina</button>
-        </div>
-        {khataView === 'list' ? <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} /> : <Mahina data={data} {...common} setMonth={setMonth} />}
-      </>
-    ),
-    mera: <MeraScreen mine={mera.mine} balances={mera.balances} people={mera.people} report={mera.report} month={meraMonth} setMonth={setMeraMonth}
-      worth={mera.worth} owedToMe={mera.owedToMe} iOwe={mera.iOwe}
-      onAdd={(type) => setSheet({ kind: 'ptx', preset: { type } })}
-      onOpenAccount={(a) => setSheet({ kind: 'account', row: a })} onOpenContact={(c) => setSheet({ kind: 'contact', row: c })}
-      onOpenTxn={(t) => setSheet({ kind: 'ptx', row: t })} onNewAccount={() => setSheet({ kind: 'account-edit' })} onNewContact={() => setSheet({ kind: 'contact-edit' })}
-      onRates={() => setSheet({ kind: 'rates' })} onAll={() => setSheet({ kind: 'alltx' })}
-      onPdf={async () => {
-        say('PDF ban raha hai...');
-        try {
-          const { exportPdf } = await import('./mine/pdf.js');
-          const r = await exportPdf({ name: names[me], mine: mera.mine, balances: mera.balances, people: mera.people, worth: mera.worth, shared: data, me, names });
-          if (r !== 'cancel') say(r === 'shared' ? 'PDF tayyar' : 'PDF download ho gaya');
-        } catch (e) { say('PDF nahi bana: ' + e.message); }
-      }} />,
+    khata: <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} />,
+    mahina: <Mahina data={data} {...common} setMonth={setMonth} />,
     activity: <ActivityView activity={data.activity} me={me} ids={ids} names={names} colors={COLORS} byKey={byKey} onOpen={open} />,
+  } : {
+    home: <MeraHome {...mcommon} allTx={mera.allTx} balances={mera.balances} report={mera.report} worth={mera.worth} owedToMe={mera.owedToMe} iOwe={mera.iOwe}
+      onOpenTxn={openTxn} onAll={() => setSheet({ kind: 'alltx' })} onGo={setTab} />,
+    accounts: <MeraAccounts {...mcommon} balances={mera.balances} worth={mera.worth} />,
+    analytics: <MeraAnalytics {...mcommon} report={mera.report} month={meraMonth} setMonth={setMeraMonth} reportFor={mera.reportFor} onPdf={pdf} />,
+    people: <MeraPeople {...mcommon} people={mera.people} shared={data} me={me} onOpenContact={(c) => setSheet({ kind: 'contact', row: c })} onNewContact={() => setSheet({ kind: 'contact-edit' })} onOpenShared={goShared} />,
   };
 
   const s = sheet;
-  const formProps = { ...common, busy };
+  const linkAccounts = mera.mine.accounts.filter((a) => !a.archived && (a.currency || 'PKR') === 'PKR');
+  const lastAcc = linkAccounts.some((a) => idOf(a) === LS.get('khata.lastAcc')) ? LS.get('khata.lastAcc') : '';
+  const formProps = { ...common, busy, accounts: s?.batchIndex != null ? undefined : linkAccounts, linkInit: lastAcc };
   let sheetTitle = '', sheetBody = null;
   const aiProps = s?.prefill ? { prefill: s.prefill, ai: s.ai } : {};
   const inBatch = s?.batchIndex != null && batch;
@@ -253,13 +297,15 @@ export default function App() {
   }
   if (s?.kind === 'detail') {
     sheetTitle = { payment: 'Payment', loan: 'Qarz', expense: 'Kharcha' }[s.entry.type];
-    sheetBody = <EntryDetail e={s.entry} {...common} byId={byId} onOpen={open} onConfirm={confirm} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })} />;
+    const k = keyOf(s.entry);
+    sheetBody = <EntryDetail e={s.entry} {...common} byId={byId} onOpen={open} onConfirm={confirm} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })}
+      extra={<AccountLink accounts={linkAccounts} value={mera.linkOf[k] || ''} dir={flowOf(s.entry, me)} onChange={async (v) => { await setLink(k, v); haptic(10); doneMsg(v ? 'Account se jod diya' : 'Account se hata diya'); }} />} />;
   }
   if (s?.kind === 'edit') {
     sheetTitle = 'Entry badlo';
     sheetBody = s.entry.type !== 'expense'
-      ? <PaymentForm {...formProps} loan={s.entry.type === 'loan'} balance={balance} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />
-      : <ExpenseForm {...formProps} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />;
+      ? <PaymentForm {...formProps} linkInit={mera.linkOf[keyOf(s.entry)] || ''} loan={s.entry.type === 'loan'} balance={balance} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />
+      : <ExpenseForm {...formProps} linkInit={mera.linkOf[keyOf(s.entry)] || ''} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />;
   }
   // ---- Mera Hisaab sheets ----
   const mp = { accounts: mera.mine.accounts, contacts: mera.mine.contacts, balances: mera.balances, onCreateAccount: quickAccount, onCreateContact: quickContact };
@@ -272,8 +318,8 @@ export default function App() {
   if (s?.kind === 'account') {
     const a = mera.mine.accounts.find((x) => idOf(x) === idOf(s.row)) || s.row;
     sheetTitle = a.name;
-    sheetBody = <AccountDetail a={a} balance={mera.balances[idOf(a)] || 0} mine={mera.mine} rates={mera.rates}
-      onOpen={(t) => setSheet({ kind: 'ptx', row: t, back: s })} onAdd={(type) => setSheet({ kind: 'ptx', preset: { type, accountId: idOf(a) }, back: s })}
+    sheetBody = <AccountDetail a={a} balance={mera.balances[idOf(a)] || 0} mine={mera.mine} allTx={mera.allTx} rates={mera.rates} otherName={otherName}
+      onOpen={(t) => (t.synthetic ? openTxn(t) : setSheet({ kind: 'ptx', row: t, back: s }))} onAdd={(type) => setSheet({ kind: 'ptx', preset: { type, accountId: idOf(a) }, back: s })}
       onAdjust={() => setSheet({ kind: 'ptx', preset: { type: 'adjust', accountId: idOf(a) }, back: s })} onEdit={() => setSheet({ kind: 'account-edit', row: a })} />;
   }
   if (s?.kind === 'account-edit') {
@@ -295,15 +341,14 @@ export default function App() {
   }
   if (s?.kind === 'rates') {
     sheetTitle = 'Currency rate';
-    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} onSave={async (b) => { await sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: b }); setSheet(null); doneMsg('Rate save ho gaya'); }} />;
+    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} live={live} onSave={async (b) => { await sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: b }); setSheet(null); doneMsg('Rate save ho gaya'); }} />;
   }
-  if (s?.kind === 'alltx') { sheetTitle = 'Mere saare len-den'; sheetBody = <AllTxns mine={mera.mine} onOpen={(t) => setSheet({ kind: 'ptx', row: t, back: s })} />; }
+  if (s?.kind === 'alltx') { sheetTitle = 'Mere saare len-den'; sheetBody = <AllTxns mine={mera.mine} allTx={mera.allTx} otherName={otherName} onOpen={(t) => (t.synthetic ? openTxn(t) : setSheet({ kind: 'ptx', row: t, back: s }))} />; }
 
   if (s?.kind === 'chooser') {
     sheetTitle = 'Kya likhna hai?';
     sheetBody = (
       <div className="chooser">
-        <p className="chooser-sep first">{names[otherId]} ke saath</p>
         <motion.button className="ai-choice" whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'ai' })}>
           <span className="ch-icon ai"><Mic size={22} /></span>
           <span><strong>Bol kar likho</strong><small>Apne andaz mein bolo ya likho, AI form bhar dega. Save aap karoge.</small></span>
@@ -320,12 +365,24 @@ export default function App() {
           <span className="ch-icon loan"><HandCoins size={22} /></span>
           <span><strong>Qarz</strong><small>{names[otherId]} ke saath udhaar, jo wapas karna hai</small></span>
         </motion.button>
-        <p className="chooser-sep">Sirf mera (Mera Hisaab)</p>
-        <div className="chooser-mini">
-          {[['expense', 'Mera kharcha', Receipt], ['income', 'Aamdani', ArrowDownLeft], ['transfer', 'Transfer', ArrowLeftRight], ['lend', 'Kisi se qarz', HandCoins]].map(([t, l, I]) => (
-            <motion.button key={t} whileTap={{ scale: 0.95 }} onClick={() => setSheet({ kind: 'ptx', preset: { type: t } })}><I size={19} /><span>{l}</span></motion.button>
-          ))}
-        </div>
+      </div>
+    );
+  }
+  if (s?.kind === 'mchooser') {
+    sheetTitle = 'Mera len-den';
+    sheetBody = (
+      <div className="mchooser">
+        {[
+          ['expense', 'Kharcha', 'Paise kharch hue', ArrowUpRight, 'out'], ['income', 'Aamdani', 'Tankhwah, freelance, kuch bhi', ArrowDownLeft, 'in'],
+          ['transfer', 'Transfer', 'Ek account se doosre mein', ArrowLeftRight, 'mv'], ['lend', 'Qarz diya', 'Kisi ko udhaar diya', HandCoins, 'out'],
+          ['got_back', 'Wapas mila', 'Diya hua qarz wapas aaya', Undo2, 'in'], ['borrow', 'Qarz liya', 'Kisi se udhaar liya', HandCoins, 'in'],
+        ].map(([t, l, d, I, c], i) => (
+          <motion.button key={t} whileTap={{ scale: 0.96 }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+            onClick={() => setSheet({ kind: 'ptx', preset: { type: t } })}>
+            <span className={'entry-icon m-' + c}><I size={20} /></span><strong>{l}</strong><small>{d}</small>
+          </motion.button>
+        ))}
+        <button className="mchooser-link" onClick={() => { setMode('dosti'); setSheet({ kind: 'chooser' }); }}><Users size={16} /> {otherName} ke saath wala kharcha? Dosti khata mein likho</button>
       </div>
     );
   }
@@ -357,47 +414,49 @@ export default function App() {
     if (r) say(r);
   }
 
-  const tabs = [
+  const tabs = mode === 'dosti' ? [
     { id: 'home', label: 'Ghar', icon: HomeIcon },
     { id: 'khata', label: 'Khata', icon: BookOpen },
     { id: 'plus' },
-    { id: 'mera', label: 'Mera', icon: Wallet },
-    { id: 'me', label: names[me], icon: UserRound },
+    { id: 'mahina', label: 'Mahina', icon: CalendarDays },
+    { id: 'activity', label: 'Badlav', icon: History, badge: unread },
+  ] : [
+    { id: 'home', label: 'Home', icon: HomeIcon },
+    { id: 'accounts', label: 'Accounts', icon: Landmark },
+    { id: 'plus' },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'people', label: 'Khate', icon: Users },
   ];
 
   return (
-    <div className="app">
+    <div className={"app mode-" + mode}>
       <header className="topbar">
-        <div>
+        <div className="hello-box">
           <p className="hello">Assalam o Alaikum</p>
           <p className="hello-name">{names[me]}</p>
         </div>
+        <ModeSwitch mode={mode} onChange={setMode} otherName={otherName} dot={mode === 'mera' && unread > 0} />
         <SyncDot online={sync.online} live={sync.live} pending={pending} syncing={sync.syncing} />
-        <button className={'act-btn' + (tab === 'activity' ? ' on' : '')} onClick={openActivity} aria-label={unread ? `Activity, ${unread} nayi` : 'Activity'}>
-          <History size={21} />
-          {unread > 0 && <motion.span className="badge" initial={{ scale: 0 }} animate={{ scale: 1 }}>{unread > 9 ? '9+' : unread}</motion.span>}
-        </button>
         <button className="avatar" style={{ '--c': COLORS[me] }} onClick={() => setSheet({ kind: 'settings' })} aria-label="Mera account">{names[me][0]}</button>
       </header>
 
       <main>
         <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}>
-            {screens[tab]}
+          <motion.div key={mode + tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}>
+            {screens[tab] || screens.home}
           </motion.div>
         </AnimatePresence>
       </main>
 
       <nav className="tabbar" aria-label="Main">
         {tabs.map((t) => t.id === 'plus' ? (
-          <motion.button key="plus" className="fab" whileTap={{ scale: 0.9, rotate: 90 }} onClick={() => { haptic(); setSheet({ kind: 'chooser' }); }} aria-label="Nayi entry">
+          <motion.button key="plus" className="fab" whileTap={{ scale: 0.9, rotate: 90 }} onClick={() => { haptic(); setSheet({ kind: mode === 'mera' ? (mera.mine.accounts.some((a) => !a.archived) ? 'mchooser' : 'account-edit') : 'chooser' }); }} aria-label="Nayi entry">
             <Plus size={26} strokeWidth={2.4} />
           </motion.button>
         ) : (
-          <button key={t.id} className={'tab' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined}
-            onClick={() => (t.id === 'me' ? setSheet({ kind: 'settings' }) : setTab(t.id))}>
+          <button key={mode + t.id} className={'tab' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
             {tab === t.id && <motion.span layoutId="tab-dot" className="tab-dot" />}
-            <t.icon size={22} />
+            <span className="tab-ic"><t.icon size={22} />{t.badge > 0 && <motion.span className="badge" initial={{ scale: 0 }} animate={{ scale: 1 }}>{t.badge > 9 ? '9+' : t.badge}</motion.span>}</span>
             <span>{t.label}</span>
           </button>
         ))}

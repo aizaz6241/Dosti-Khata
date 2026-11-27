@@ -23,6 +23,8 @@ export function effects(t) {
     case 'got_back': return [[t.accountId, a]];
     case 'paid_back': return [[t.accountId, -a]];
     case 'adjust': return [[t.accountId, a]]; // a +/- dono ho sakta hai
+    case 'khata_out': return [[t.accountId, -a]]; // Abdullah wale khate ki entry, is account se paise gaye
+    case 'khata_in': return [[t.accountId, a]];
     default: return [];
   }
 }
@@ -80,10 +82,19 @@ export function netWorth(accounts, balances, rates) {
 const prevMonth = (m) => { const [y, mo] = m.split('-').map(Number); const d = new Date(Date.UTC(y, mo - 2, 1)); return d.toISOString().slice(0, 7); };
 
 // Mahine ka hisaab (PKR mein; doosri currency rate se)
-export function monthReport(txns, accounts, monthKey, rates = {}) {
+export function monthReport(txns, accounts, monthKey, rates = {}, shared = []) {
   const cur = Object.fromEntries(accounts.map((a) => [idOf(a), a.currency || 'PKR']));
   const sum = (m) => {
-    const r = { spent: 0, income: 0, byCat: {}, inCat: {}, byDay: {}, count: 0, biggest: null, lent: 0, gotBack: 0 };
+    const r = { spent: 0, income: 0, byCat: {}, inCat: {}, byDay: {}, count: 0, biggest: null, lent: 0, gotBack: 0, khata: 0 };
+    // Dosti khata mein aap ka hissa bhi aap ka kharcha hai
+    for (const s of shared) {
+      if (String(s.date).slice(0, 7) !== m) continue;
+      const v = Number(s.amount) || 0;
+      r.spent += v; r.khata += v; r.count++;
+      r.byCat[s.category] = round((r.byCat[s.category] || 0) + v);
+      r.byDay[s.date] = round((r.byDay[s.date] || 0) + v);
+      if (!r.biggest || v > r.biggest.pkr) r.biggest = { ...s, type: 'expense', pkr: round(v) };
+    }
     for (const t of txns) {
       if (String(t.date).slice(0, 7) !== m) continue;
       const v = toPKR(t.amount, cur[t.accountId] || 'PKR', rates);
@@ -99,7 +110,7 @@ export function monthReport(txns, accounts, monthKey, rates = {}) {
       } else if (t.type === 'lend') r.lent += v;
       else if (t.type === 'got_back') r.gotBack += v;
     }
-    r.spent = round(r.spent); r.income = round(r.income); r.lent = round(r.lent); r.gotBack = round(r.gotBack);
+    r.spent = round(r.spent); r.khata = round(r.khata); r.income = round(r.income); r.lent = round(r.lent); r.gotBack = round(r.gotBack);
     return r;
   };
   const now = sum(monthKey);
@@ -114,4 +125,58 @@ export function monthReport(txns, accounts, monthKey, rates = {}) {
     prev: { month: prevMonth(monthKey), spent: before.spent, income: before.income },
     change: before.spent > 0 ? round(((now.spent - before.spent) / before.spent) * 100) : null,
   };
+}
+
+// ---------------- Dosti khata (Abdullah wala) ko Mera Hisaab mein jodna ----------------
+const SHARED_CAT = { khana: 'khana', chai: 'chai', sauda: 'sauda', program: 'sair', petrol: 'petrol', kiraya: 'safar', ghar: 'ghar', bill: 'bill', salon: 'salon', kapray: 'kapray', dawai: 'dawai', ticket: 'safar' };
+export const sharedCat = (c) => SHARED_CAT[c] || 'other';
+
+// Saanjhe khate ke har kharche mein aap ka apna hissa (poora bill nahi)
+export function sharedSpend(rows, me) {
+  const out = [];
+  for (const e of rows || []) {
+    if (e.type !== 'expense') continue;
+    const v = round(Number(e.shares?.[me] || 0));
+    if (!(v > 0)) continue;
+    out.push({ date: String(e.date).slice(0, 10), time: e.time || '', amount: v, category: sharedCat(e.category), note: e.note || '', entryId: idOf(e), paidBy: e.paidBy, khata: true });
+  }
+  return out;
+}
+
+// Kis shared entry mein aap ke paise kis taraf gaye: 'out' (aap ne diye) ya 'in' (aap ko mile)
+export function flowOf(e, me) {
+  if (!e) return null;
+  if (e.type === 'expense') return e.paidBy === me ? 'out' : null;
+  if (e.from === me) return 'out';
+  if (e.to === me || (e.from && e.from !== me)) return 'in';
+  return null;
+}
+
+// Links (entry -> mera account) ko asal len-den bana do, taake account ka balance sahi rahe
+export function khataFlows(links, rows, me) {
+  const byId = new Map();
+  for (const r of rows || []) { byId.set(idOf(r), r); if (r._id) byId.set(String(r._id), r); }
+  const out = [];
+  for (const l of links || []) {
+    const e = byId.get(String(l.entryId));
+    const dir = flowOf(e, me);
+    if (!dir || !l.accountId) continue;
+    out.push({ _id: 'k-' + idOf(e), clientId: 'k-' + idOf(e), type: dir === 'out' ? 'khata_out' : 'khata_in', amount: round(e.amount), accountId: l.accountId, date: String(e.date).slice(0, 10), time: e.time || '', note: e.note || '', category: e.category, khataType: e.type, entryId: idOf(e), createdAt: e.createdAt, synthetic: true });
+  }
+  return out;
+}
+
+// Rate: khud likha hua (agar "khud likhunga" chuna) warna live, warna purana likha hua
+export function effectiveRates(prefs = {}, live = {}) {
+  const manual = prefs.manual || [];
+  const saved = prefs.rates || {};
+  const out = {};
+  for (const c of CURRENCIES) {
+    if (c === 'PKR') continue;
+    const l = Number(live?.[c]); const m = Number(saved[c]);
+    if (manual.includes(c) && m > 0) out[c] = m;
+    else if (l > 0) out[c] = l;
+    else if (m > 0) out[c] = m;
+  }
+  return out;
 }

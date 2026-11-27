@@ -47,9 +47,9 @@ export function applyQueue(rows, queue, me, ids) {
 }
 
 // Mera Hisaab: phone ki line ko apne data par lagao (offline bhi sahi dikhe)
-export const EMPTY_MINE = { accounts: [], ptx: [], contacts: [], prefs: { rates: {} } };
+export const EMPTY_MINE = { accounts: [], ptx: [], contacts: [], links: [], prefs: { rates: {}, manual: [] } };
 export function applyMine(mine, queue, me) {
-  const out = { accounts: [...(mine?.accounts || [])], ptx: [...(mine?.ptx || [])], contacts: [...(mine?.contacts || [])], prefs: mine?.prefs || { rates: {} } };
+  const out = { accounts: [...(mine?.accounts || [])], ptx: [...(mine?.ptx || [])], contacts: [...(mine?.contacts || [])], links: [...(mine?.links || [])], prefs: mine?.prefs || { rates: {}, manual: [] } };
   for (const op of queue) {
     if (isEntries(op)) continue;
     if (op.col === 'prefs') { out.prefs = { ...out.prefs, ...op.body, pending: true }; continue; }
@@ -58,7 +58,7 @@ export function applyMine(mine, queue, me) {
     const i = list.findIndex((r) => keyOf(r) === op.key || String(r._id) === op.key);
     if (op.kind === 'delete') {
       if (i < 0) continue;
-      if (op.col === 'ptx') list.splice(i, 1);
+      if (op.col === 'ptx' || op.col === 'links') list.splice(i, 1);
       else list[i] = { ...list[i], archived: true, pending: true }; // server faisla karega: mitao ya chhupao
       continue;
     }

@@ -1,3 +1,4 @@
+import AccountLink from '../mine/AccountLink';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Calculator from './Calculator';
@@ -111,7 +112,8 @@ function AiBanner({ ai }) {
 const flag = (ai, ...f) => (ai && f.some((x) => ai.missing?.includes(x) || ai.assumed?.includes(x)) ? ' ai-check' : '');
 
 /* ---------------- Kharcha ---------------- */
-export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, onSave, onDelete, busy, saveLabel }) {
+export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, onSave, onDelete, busy, saveLabel, accounts, linkInit = '' }) {
+  const [link, setLink] = useState(linkInit);
   const seed = initial || prefill;
   const initSplit = seed ? (['half', 'full', 'self', 'custom'].includes(seed.split) ? seed.split : 'custom') : 'half';
   const [paidBy, setPaidBy] = useState(initial ? initial.paidBy : prefill ? prefill.paidBy : me);
@@ -144,7 +146,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
   const submit = (ev) => {
     ev.preventDefault();
     if (!paidBy || amt <= 0 || (owed <= 0 && split !== 'self')) return;
-    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date, time, people: split === 'custom' ? people || undefined : undefined, parts: prefill?.parts && Number(amount) === prefill.parts.reduce((a, b) => a + b, 0) ? prefill.parts : undefined });
+    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date, time, people: split === 'custom' ? people || undefined : undefined, parts: prefill?.parts && Number(amount) === prefill.parts.reduce((a, b) => a + b, 0) ? prefill.parts : undefined, ...(accounts?.length ? { _link: paidBy === me ? link : '' } : {}) });
   };
 
   return (
@@ -204,6 +206,8 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
         )}
       </div>
 
+      <AccountLink accounts={accounts} value={link} onChange={setLink} dir={paidBy === me ? 'out' : null} />
+
       <div className={flag(ai, 'date').trim()}><DateRow date={date} setDate={setDate} time={time} setTime={setTime} /></div>
 
       <div className={'preview' + (amt > 0 && (owed > 0 || split === 'self') ? ' live' : '')}>
@@ -221,7 +225,8 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
 }
 
 /* ---------------- Payment ---------------- */
-export function PaymentForm({ me, otherId, names, colors, balance, initial, prefill, ai, prefillClear, onSave, onDelete, busy, loan, saveLabel }) {
+export function PaymentForm({ me, otherId, names, colors, balance, initial, prefill, ai, prefillClear, onSave, onDelete, busy, loan, saveLabel, accounts, linkInit = '' }) {
+  const [link, setLink] = useState(linkInit);
   const other = names[otherId];
   const defaultFrom = initial?.from || (loan ? otherId : balance.amount > 0 ? balance.from : me);
   const [from, setFrom] = useState(prefill ? prefill.from : defaultFrom);
@@ -265,6 +270,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
     ev.preventDefault();
     if (amt <= 0 || !from) return;
     const body = { type: loan ? 'loan' : 'payment', amount: amt, from, note, date, time };
+    if (accounts?.length) body._link = link;
     if (shot) body.screenshot = shot;
     else if (initial && shotUrl(initial) && !keepOld) body.removeScreenshot = true;
     onSave(body);
@@ -313,6 +319,8 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
         )}
         {shotErr && <p className="err">{shotErr}</p>}
       </div>
+
+      <AccountLink accounts={accounts} value={link} onChange={setLink} dir={from ? (from === me ? 'out' : 'in') : null} />
 
       <DateRow date={date} setDate={setDate} time={time} setTime={setTime} />
 

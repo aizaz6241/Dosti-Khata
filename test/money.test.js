@@ -89,3 +89,42 @@ test('January ka pichla mahina December', () => {
   const r = monthReport([t({ type: 'expense', amount: 100, accountId: 'cash', date: '2026-12-31' })], acc, '2027-01');
   assert.equal(r.prev.month, '2026-12'); assert.equal(r.prev.spent, 100);
 });
+
+import { sharedSpend, khataFlows, effectiveRates, accountBalances as ab2, monthReport as mr2 } from '../server/money.js';
+import { binanceSell, createRates } from '../server/rates.js';
+
+test('dosti khata: mera hissa kharcha, link se account ka balance', () => {
+  const rows = [
+    { clientId: 'e1', type: 'expense', amount: 1000, paidBy: 'aizaz', shares: { aizaz: 500, abdullah: 500 }, category: 'khana', date: '2026-11-05' },
+    { clientId: 'e2', type: 'expense', amount: 600, paidBy: 'abdullah', shares: { aizaz: 300, abdullah: 300 }, category: 'kiraya', date: '2026-11-06' },
+    { clientId: 'e3', type: 'payment', amount: 2000, from: 'aizaz', to: 'abdullah', date: '2026-11-07' },
+    { clientId: 'e4', type: 'payment', amount: 700, from: 'abdullah', to: 'aizaz', date: '2026-11-08' },
+    { clientId: 'e5', type: 'expense', amount: 400, paidBy: 'abdullah', shares: { aizaz: 0, abdullah: 400 }, category: 'chai', date: '2026-11-08' },
+  ];
+  const sp = sharedSpend(rows, 'aizaz');
+  assert.deepEqual(sp.map((x) => [x.amount, x.category]), [[500, 'khana'], [300, 'safar']]);
+  const links = [{ entryId: 'e1', accountId: 'cash' }, { entryId: 'e3', accountId: 'bank' }, { entryId: 'e4', accountId: 'cash' }, { entryId: 'e2', accountId: 'cash' }, { entryId: 'gone', accountId: 'cash' }];
+  const flows = khataFlows(links, rows, 'aizaz');
+  assert.equal(flows.length, 3); // e2 Abdullah ne diya: account par asar nahi; 'gone' mit chuki
+  const bal = ab2([{ clientId: 'cash', opening: 5000 }, { clientId: 'bank', opening: 10000 }], flows);
+  assert.deepEqual(bal, { cash: 4700, bank: 8000 });
+  const r = mr2([], [], '2026-11', {}, sp);
+  assert.equal(r.spent, 800); assert.equal(r.khata, 800); assert.equal(r.byCat.safar, 300);
+});
+
+test('rate: khud likha / live', () => {
+  assert.deepEqual(effectiveRates({ rates: { USDT: 280 } }, { USDT: 285 }), { USDT: 285 });
+  assert.deepEqual(effectiveRates({ rates: { USDT: 280 }, manual: ['USDT'] }, { USDT: 285 }), { USDT: 280 });
+  assert.deepEqual(effectiveRates({ rates: { USDT: 280 } }, {}), { USDT: 280 });
+});
+
+test('binance: upar wala rate, ajeeb ho to beech wala', async () => {
+  const fake = (prices) => async () => ({ ok: true, json: async () => ({ data: prices.map((p) => ({ adv: { price: String(p) } })) }) });
+  assert.equal(await binanceSell(fake([281.5, 281.2, 281, 280.9, 280.5])), 281.5);
+  assert.equal(await binanceSell(fake([320, 281.2, 281, 280.9, 280.5])), 281);
+  const fake2 = (ads) => async () => ({ ok: true, json: async () => ({ data: ads.map(([p, m]) => ({ adv: { price: String(p), minSingleTransAmount: String(m) } })) }) });
+  assert.equal(await binanceSell(fake2([[298.38, 190000], [298.38, 250000], [293.3, 350], [292.8, 5000], [292.72, 350], [292.6, 1000]])), 293.3);
+  const r = createRates({ fetchFn: async (url) => { if (String(url).includes('binance')) throw new Error('blocked'); if (String(url).includes('coingecko')) return { ok: true, json: async () => ({ tether: { pkr: 280.4 } }) }; return { ok: true, json: async () => ({ rates: { USD: 1 / 279, AED: 1 / 76 } }) }; }, log: {} });
+  const g = await r.get();
+  assert.equal(g.rates.USDT, 280.4); assert.equal(g.sources.USDT, 'CoinGecko'); assert.equal(g.rates.USD, 279);
+});

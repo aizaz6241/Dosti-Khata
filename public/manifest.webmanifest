@@ -1,0 +1,16 @@
+{
+  "name": "Dosti Khata",
+  "short_name": "Khata",
+  "description": "Aizaz aur Abdullah ka saanjha hisaab",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EEF2EE",
+  "theme_color": "#0F3D33",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

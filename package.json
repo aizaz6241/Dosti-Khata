@@ -1,0 +1,31 @@
+{
+  "name": "dosti-khata",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "express": "^5.3.0",
+    "framer-motion": "^14.14.0",
+    "lucide-react": "^1.81.0",
+    "mongoose": "^9.13.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "vite": "^8.4.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}

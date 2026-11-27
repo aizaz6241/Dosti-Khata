@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight, ChevronLeft, MessageCircle, Plus, ArrowUpRight, Smartphone, X, Delete } from 'lucide-react';
+import { ChevronRight, ChevronLeft, MessageCircle, Plus, ArrowUpRight, Smartphone, X, Delete, Bell, Share, SquarePlus, EllipsisVertical, Download } from 'lucide-react';
 import Tarazu from './components/Tarazu';
 import EntryRow from './components/EntryRow';
 import { catOf, dayLabel, monthName, monthShort, rs, shortDay, thisMonth, visible, LS } from './lib';
@@ -67,7 +67,8 @@ export function Lock({ people, colors, onLogin, error, busy }) {
 }
 
 /* ---------------- Home ---------------- */
-export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata, canInstall, onInstall, onDismissInstall }) {
+export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata, canInstall, onInstall, onDismissInstall, canNotify, onNotify }) {
+  const [notifyHidden, setNotifyHidden] = useState(false);
   const { balance, stats } = data;
   const entries = data.entries.filter(visible(me));
   const other = names[otherId];
@@ -115,6 +116,18 @@ export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata,
           </div>
           <button className="btn small" onClick={onInstall}>Lagao</button>
           <button className="icon-btn" aria-label="Chhupao" onClick={onDismissInstall}><X size={16} /></button>
+        </motion.div>
+      )}
+
+      {canNotify && !notifyHidden && (
+        <motion.div className="install-card notify" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <Bell size={22} />
+          <div>
+            <strong>Notifications on karo</strong>
+            <span>{other} kuch likhe to foran pata chale</span>
+          </div>
+          <button className="btn small" onClick={onNotify}>On karo</button>
+          <button className="icon-btn" aria-label="Chhupao" onClick={() => { setNotifyHidden(true); LS.set('khata.notifyHidden', true); }}><X size={16} /></button>
         </motion.div>
       )}
 
@@ -319,26 +332,35 @@ export function Mahina({ data, me, otherId, names, colors, setMonth }) {
 }
 
 /* ---------------- Install guide ---------------- */
+const ios = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 export function InstallGuide({ prompt, onPrompt }) {
+  const iPhone = ios();
+  const steps = iPhone
+    ? [
+        { icon: Share, t: 'Neeche Share button dabao', s: 'Safari mein, dabba jis se teer upar ja raha hai' },
+        { icon: SquarePlus, t: '"Add to Home Screen" chuno', s: 'List thori neeche scroll karo' },
+        { icon: Download, t: 'Upar "Add" dabao', s: 'Bas. Ab app Home Screen se khulegi' },
+      ]
+    : [
+        { icon: EllipsisVertical, t: 'Upar 3 dots dabao', s: 'Chrome mein, daayein kone mein' },
+        { icon: Download, t: '"Install app" ya "Add to Home screen"', s: 'Phir "Install" dabao' },
+      ];
   return (
     <div className="guide">
-      {prompt && <button className="btn primary wide" onClick={onPrompt}><Smartphone size={18} /> Abhi install karo</button>}
-      <section>
-        <h3>iPhone (Safari)</h3>
-        <ol>
-          <li>Ye page <b>Safari</b> mein kholo</li>
-          <li>Neeche <b>Share</b> button dabao (dabba jis se teer upar ja raha hai)</li>
-          <li><b>Add to Home Screen</b> chunein, phir <b>Add</b></li>
-        </ol>
-      </section>
-      <section>
-        <h3>Android (Chrome, jaise S23)</h3>
-        <ol>
-          <li>Upar daayein <b>3 dots</b> dabao</li>
-          <li><b>Install app</b> ya <b>Add to Home screen</b> chunein</li>
-          <li><b>Install</b> dabao</li>
-        </ol>
-      </section>
+      {prompt && (
+        <button className="btn primary wide big" onClick={onPrompt}><Download size={19} /> Ek tap mein install karo</button>
+      )}
+      {iPhone && <p className="guide-note">iPhone par Apple seedha install button nahi deta, is liye sirf 3 qadam:</p>}
+      {!iPhone && prompt && <p className="guide-note">Button kaam na kare to ye tareeqa:</p>}
+      <ol className="steps">
+        {steps.map((st, i) => (
+          <li key={i}>
+            <span className="step-icon"><st.icon size={20} /></span>
+            <span><strong>{st.t}</strong><small>{st.s}</small></span>
+          </li>
+        ))}
+      </ol>
+      {iPhone && <div className="ios-arrow" aria-hidden="true"><span>Share button yahan neeche hai</span><i /></div>}
     </div>
   );
 }

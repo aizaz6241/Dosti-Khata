@@ -131,3 +131,17 @@ export function monthStats(entries, people, monthKey) {
   }
   return stats;
 }
+
+// Purane mahinon (monthKey se pehle) ka jo hissa abhi tak baqi hai.
+// computeLedger ka natija do. Wapas: { from, to, amount }
+export function dueBefore(ledger, monthKey) {
+  let from = null, to = null, amount = 0;
+  for (const e of ledger.entries) {
+    if (String(e.date).slice(0, 7) >= monthKey) continue;
+    if (e.calc.left > 0) {
+      from = e.calc.debtor; to = e.calc.creditor;
+      amount = round(amount + e.calc.left);
+    }
+  }
+  return { from, to, amount };
+}

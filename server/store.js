@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 
-const ENTRY_FIELDS = ['type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey'];
+const ENTRY_FIELDS = ['clientId', 'type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey'];
 
 function mongoStore(uri) {
   const Entry = mongoose.models.Entry || mongoose.model('Entry', new mongoose.Schema(
@@ -23,6 +23,7 @@ function mongoStore(uri) {
       to: String,
       createdBy: String,
       updatedBy: String,
+      clientId: { type: String, index: { unique: true, sparse: true } },
       fileId: String,
       fileUrl: String,
       fileKey: String,
@@ -38,8 +39,15 @@ function mongoStore(uri) {
     { timestamps: true }
   ));
 
+  const Sub = mongoose.models.Sub || mongoose.model('Sub', new mongoose.Schema(
+    { user: String, endpoint: { type: String, unique: true }, keys: Object, ua: String },
+    { timestamps: true }
+  ));
+  const Meta = mongoose.models.Meta || mongoose.model('Meta', new mongoose.Schema({ _id: String, value: mongoose.Schema.Types.Mixed }));
+
   const repo = (M, fields) => ({
     all: async (q = {}) => M.find(q).lean(),
+    find: async (q) => M.findOne(q).lean(),
     get: async (id) => M.findById(id).lean(),
     create: async (data) => (await M.create(fields ? pick(data, fields) : data)).toObject(),
     update: async (id, data) => M.findByIdAndUpdate(id, fields ? pick(data, fields) : data, { new: true }).lean(),
@@ -52,6 +60,8 @@ function mongoStore(uri) {
     entries: repo(Entry, ENTRY_FIELDS),
     users: repo(User),
     files: repo(File),
+    subs: repo(Sub),
+    meta: repo(Meta),
   };
 }
 
@@ -64,8 +74,10 @@ function pick(o, fields) {
 function fileRepo(file, fields, idGiven = false) {
   const load = () => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : []);
   const save = (rows) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(rows)); };
+  const match = (r, q) => Object.entries(q).every(([k, v]) => r[k] === v);
   return {
-    all: async () => load(),
+    all: async (q = {}) => load().filter((r) => match(r, q)),
+    find: async (q) => load().find((r) => match(r, q)) || null,
     get: async (id) => load().find((r) => r._id === id) || null,
     create: async (data) => {
       const rows = load();
@@ -102,5 +114,7 @@ export function createStore() {
     entries: fileRepo(path.join(dir, 'entries.json'), ENTRY_FIELDS),
     users: fileRepo(path.join(dir, 'users.json'), null, true),
     files: fileRepo(path.join(dir, 'files.json'), null),
+    subs: fileRepo(path.join(dir, 'subs.json'), null),
+    meta: fileRepo(path.join(dir, 'meta.json'), null, true),
   };
 }

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins } from 'lucide-react';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw } from 'lucide-react';
 import { api, LS, thisMonth, haptic } from './lib';
+import { computeLedger, monthStats } from '../server/ledger.js';
+import { useKhata, applyQueue, newId } from './sync';
+import { usePush } from './push';
 import Sheet from './components/Sheet';
 import EntryDetail from './components/EntryDetail';
 import { ExpenseForm, PaymentForm, PinForm } from './components/Forms';
@@ -14,7 +17,6 @@ export default function App() {
   const [token, setToken] = useState(LS.get('khata.token'));
   const [me, setMe] = useState(LS.get('khata.me'));
   const [people, setPeople] = useState(LS.get('khata.people', DEFAULT_PEOPLE));
-  const [data, setData] = useState(LS.get('khata.cache'));
   const [month, setMonth] = useState(thisMonth());
   const [khataMonth, setKhataMonth] = useState(thisMonth());
   const [tab, setTab] = useState('home');
@@ -22,7 +24,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
   const [loginErr, setLoginErr] = useState('');
-  const [offline, setOffline] = useState(false);
   const [installEvt, setInstallEvt] = useState(null);
   const [installHidden, setInstallHidden] = useState(LS.get('khata.installHidden', false));
   const toastT = useRef();
@@ -33,30 +34,30 @@ export default function App() {
   const say = (t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2600); };
 
   const logout = useCallback(() => {
-    ['khata.token', 'khata.cache', 'khata.me'].forEach(LS.del);
-    setToken(null); setData(null); setMe(null);
+    ['khata.token', 'khata.rows', 'khata.me'].forEach(LS.del);
+    setToken(null); setMe(null);
   }, []);
 
-  const load = useCallback(async () => {
-    if (!LS.get('khata.token')) return;
-    try {
-      const d = await api('/ledger?month=' + month);
-      setData(d); setOffline(false);
-      LS.set('khata.cache', d);
-    } catch (e) {
-      if (e.status === 401) logout(); else setOffline(true);
-    }
-  }, [month, logout]);
+  const ids = useMemo(() => people.map((p) => p.id), [people]);
+  const sync = useKhata({ token: token && me ? token : null, onError: (m) => say('Sync nahi hui: ' + m), onUnauthorized: logout });
+  const pushState = usePush({ token, me });
 
-  useEffect(() => { load(); }, [load, token]);
-  useEffect(() => {
-    const t = setInterval(load, 20000);
-    const v = () => document.visibilityState === 'visible' && load();
-    document.addEventListener('visibilitychange', v);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', v); };
-  }, [load]);
+  // Hisaab phone par hi banta hai (offline bhi)
+  const data = useMemo(() => {
+    if (!sync.rows || !me) return null;
+    const rows = applyQueue(sync.rows, sync.queue, me, ids);
+    const ledger = computeLedger(rows, ids);
+    const months = [...new Set(rows.map((r) => String(r.date).slice(0, 7)))].sort().reverse();
+    return { people, me, ...ledger, stats: monthStats(rows, ids, month), months };
+  }, [sync.rows, sync.queue, me, ids, people, month]);
   useEffect(() => { // naam server se (agar badle hon)
     api('/people').then((r) => { setPeople(r.people); LS.set('khata.people', r.people); }).catch(() => {});
+  }, []);
+
+  // App icon ko daba kar shortcut (Naya kharcha / Paise bheje)
+  useEffect(() => {
+    const add = new URLSearchParams(location.search).get('add');
+    if (['expense', 'payment', 'loan'].includes(add)) { setSheet({ kind: add }); history.replaceState(null, '', '/'); }
   }, []);
 
   useEffect(() => {
@@ -65,6 +66,17 @@ export default function App() {
     return () => window.removeEventListener('beforeinstallprompt', h);
   }, []);
   const standalone = typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);
+
+  // Android/Chrome: seedha install. iPhone: Apple seedha install nahi karne deta, is liye tareeqa dikhao
+  const install = async () => {
+    if (installEvt) {
+      installEvt.prompt();
+      const r = await installEvt.userChoice.catch(() => null);
+      setInstallEvt(null);
+      setSheet(null);
+      if (r?.outcome === 'accepted') say('App install ho rahi hai');
+    } else setSheet({ kind: 'install' });
+  };
 
   const login = async (user, pin, reset) => {
     setBusy(true); setLoginErr('');
@@ -76,23 +88,19 @@ export default function App() {
     setBusy(false);
   };
 
+  // Save foran phone par, phir server par (net na ho to baad mein khud)
+  const keyOf = (e) => e.clientId || e._id;
   const save = async (body, entry) => {
-    setBusy(true);
-    try {
-      if (entry) await api('/entries/' + entry._id, { method: 'PUT', body });
-      else await api('/entries', { method: 'POST', body });
-      haptic(12);
-      setSheet(null);
-      say(entry ? 'Tabdeeli save ho gayi' : { payment: 'Payment save ho gayi', loan: 'Qarz save ho gaya', expense: 'Kharcha save ho gaya' }[body.type]);
-      await load();
-    } catch (e) { say(e.message); }
-    setBusy(false);
+    await sync.enqueue(entry ? { kind: 'update', key: keyOf(entry), body } : { kind: 'create', key: newId(), body });
+    haptic(12);
+    setSheet(null);
+    const msg = entry ? 'Tabdeeli save ho gayi' : { payment: 'Payment save ho gayi', loan: 'Qarz save ho gaya', expense: 'Kharcha save ho gaya' }[body.type];
+    say(navigator.onLine ? msg : msg + '. Net aate hi sync hogi');
   };
   const remove = async (entry) => {
-    setBusy(true);
-    try { await api('/entries/' + entry._id, { method: 'DELETE' }); setSheet(null); say('Entry delete ho gayi'); await load(); }
-    catch (e) { say(e.message); }
-    setBusy(false);
+    await sync.enqueue({ kind: 'delete', key: keyOf(entry) });
+    setSheet(null);
+    say(navigator.onLine ? 'Entry delete ho gayi' : 'Delete ho gayi. Net aate hi sync hogi');
   };
   const changePin = async (oldPin, newPin) => {
     setBusy(true);
@@ -104,18 +112,21 @@ export default function App() {
   };
 
   if (!token || !me) return <Lock people={people} colors={COLORS} onLogin={login} error={loginErr} busy={busy} />;
+  if (!data && !sync.online) return <div className="boot"><p className="boot-msg">Pehli dafa ke liye internet chahiye. Net on kar ke dobara kholo.</p></div>;
   if (!data) return <div className="boot"><span className="spinner" /></div>;
 
   const byId = Object.fromEntries(data.entries.map((e) => [e._id, e]));
   const open = (e) => setSheet({ kind: 'detail', entry: byId[e._id] || e });
+  const pending = sync.queue.length;
   const add = (kind, opts = {}) => { haptic(); setSheet({ kind, ...opts }); };
   const balance = data.balance;
   const common = { me, otherId, names, colors: COLORS };
 
   const screens = {
     home: <Home data={data} {...common} onAdd={add} onOpen={open} goKhata={() => setTab('khata')}
-      canInstall={!standalone && !installHidden} onInstall={() => setSheet({ kind: 'install' })}
-      onDismissInstall={() => { setInstallHidden(true); LS.set('khata.installHidden', true); }} />,
+      canInstall={!standalone && !installHidden} onInstall={install}
+      onDismissInstall={() => { setInstallHidden(true); LS.set('khata.installHidden', true); }}
+      canNotify={pushState.supported && !pushState.on && !LS.get('khata.notifyHidden')} onNotify={notifyToggle} />,
     khata: <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} />,
     mahina: <Mahina data={data} {...common} setMonth={setMonth} />,
   };
@@ -155,7 +166,7 @@ export default function App() {
       </div>
     );
   }
-  if (s?.kind === 'install') { sheetTitle = 'Phone par lagao'; sheetBody = <InstallGuide prompt={installEvt} onPrompt={async () => { installEvt.prompt(); await installEvt.userChoice; setInstallEvt(null); setSheet(null); }} />; }
+  if (s?.kind === 'install') { sheetTitle = 'Phone par lagao'; sheetBody = <InstallGuide prompt={installEvt} onPrompt={install} />; }
   if (s?.kind === 'pin') { sheetTitle = 'PIN badlo'; sheetBody = <PinForm busy={busy} onSave={changePin} />; }
   if (s?.kind === 'settings') {
     sheetTitle = 'Mera account';
@@ -165,11 +176,22 @@ export default function App() {
           <span className="who-av">{names[me][0]}</span>
           <div><strong>{names[me]}</strong><small>Aap ka apna account</small></div>
         </div>
+        <button className="set-row" onClick={notifyToggle} disabled={pushState.busy}>
+          {pushState.on ? <BellOff size={18} /> : <Bell size={18} />}
+          <span className="set-text">{pushState.on ? 'Notifications band karo' : 'Notifications on karo'}<small>{pushState.on ? 'Is phone par notifications aa rahi hain' : 'Nayi entry, raat 10 baje, aur mahine ki 1 se 5 tareekh ki yaad-dihani'}</small></span>
+        </button>
+        {pushState.on && <button className="set-row" onClick={async () => { const n = await pushState.test(); say(n ? 'Test notification bheji' : 'Notification nahi gayi'); }}><Bell size={18} /> Test notification bhejo</button>}
         <button className="set-row" onClick={() => setSheet({ kind: 'pin' })}><KeyRound size={18} /> PIN badlo</button>
-        {!standalone && <button className="set-row" onClick={() => setSheet({ kind: 'install' })}><Smartphone size={18} /> Phone par app lagao</button>}
+        {!standalone && <button className="set-row" onClick={install}><Smartphone size={18} /> {installEvt ? 'App install karo' : 'Phone par app lagao'}</button>}
+        <button className="set-row" onClick={() => { sync.flush(); say('Sync ho raha hai'); }}><RefreshCw size={18} /> Abhi sync karo</button>
         <button className="set-row danger" onClick={() => { setSheet(null); logout(); }}><LogOut size={18} /> Log out</button>
       </div>
     );
+  }
+
+  async function notifyToggle() {
+    const r = pushState.on ? await pushState.disable() : await pushState.enable();
+    if (r) say(r);
   }
 
   const tabs = [
@@ -187,7 +209,12 @@ export default function App() {
           <p className="hello">Assalam o Alaikum</p>
           <p className="hello-name">{names[me]}</p>
         </div>
-        {offline && <span className="offline">Offline, purana data</span>}
+        {(!sync.online || pending > 0) && (
+          <span className={'sync-chip' + (sync.online ? ' busy' : '')}>
+            {sync.online ? <RefreshCw size={13} className="spin" /> : <CloudOff size={13} />}
+            {sync.online ? `${pending} sync ho rahi` : pending ? `Offline, ${pending} baqi` : 'Offline'}
+          </span>
+        )}
         <button className="avatar" style={{ '--c': COLORS[me] }} onClick={() => setSheet({ kind: 'settings' })} aria-label="Mera account">{names[me][0]}</button>
       </header>
 

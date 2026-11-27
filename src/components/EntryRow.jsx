@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Check, Paperclip } from 'lucide-react';
+import { Check, Paperclip, CloudUpload } from 'lucide-react';
 import { cap, catOf, num, rs, timeLabel, view } from '../lib';
 
 export function StatusPill({ e }) {
@@ -35,7 +35,7 @@ export default function EntryRow({ e, me, names, colors, onOpen, index = 0 }) {
         <Icon size={19} />
       </span>
       <span className="entry-main">
-        <span className="entry-title">{title}{(e.fileId || e.fileUrl) && <Paperclip size={13} className="clip" aria-label="Screenshot laga hai" />}</span>
+        <span className="entry-title">{title}{(e.fileId || e.fileUrl) && <Paperclip size={13} className="clip" aria-label="Screenshot laga hai" />}{e.pending && <CloudUpload size={14} className="clip pending" aria-label="Abhi sync honi hai" />}</span>
         <span className="entry-sub"><span className="entry-time">{timeLabel(e)}</span>{v.line}</span>
       </span>
       <span className="entry-side">

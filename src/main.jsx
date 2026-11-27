@@ -15,5 +15,15 @@ createRoot(document.getElementById('root')).render(
 );
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then((reg) => {
+    // Har dafa app khulne par naya version check
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update().catch(() => {}));
+  }));
+  // Naya version aa gaya: jab app background mein jaye tab chupke se reload
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }
+    const reload = () => document.visibilityState === 'hidden' && location.reload();
+    document.addEventListener('visibilitychange', reload);
+  });
 }

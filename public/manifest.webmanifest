@@ -9,8 +9,73 @@
   "background_color": "#EEF2EE",
   "theme_color": "#0F3D33",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "/",
+  "lang": "ur-Latn",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "categories": [
+    "finance",
+    "productivity"
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/home.jpg",
+      "sizes": "540x1170",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Ghar: kis ne kis ko kitna dena hai"
+    },
+    {
+      "src": "/screenshots/khata.jpg",
+      "sizes": "540x1170",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Khata: kya clear hua, kya baqi hai"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Naya kharcha",
+      "short_name": "Kharcha",
+      "url": "/?add=expense",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Paise bheje",
+      "short_name": "Payment",
+      "url": "/?add=payment",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

@@ -1,0 +1,17 @@
+# Render ka free server so jata hai. Ye roz raat ~10 baje aur har mahine 1-5 tareekh
+# subah ~10 baje (Pakistan time) server ko jaga kar reminders bhejwata hai.
+# Server khud check karta hai ke reminder aaj pehle ja chuka hai ya nahi.
+name: Reminders
+on:
+  schedule:
+    - cron: '7 17 * * *'     # 10:07 PM PKT, roz
+    - cron: '47 17 * * *'    # 10:47 PM PKT, agar pehla late ho
+    - cron: '13 5 1-5 * *'   # 10:13 AM PKT, mahine ki 1-5 tareekh
+  workflow_dispatch: {}
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Server jagao aur reminders bhejo
+        run: curl -fsS --retry 6 --retry-delay 20 --retry-all-errors -m 90 https://dosti-khata.onrender.com/api/cron/tick

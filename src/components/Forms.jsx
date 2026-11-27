@@ -1,21 +1,24 @@
-import { useMemo, useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2 } from 'lucide-react';
-import { CATEGORIES, rs, today } from '../lib';
+import { Trash2, ImagePlus, X } from 'lucide-react';
+import { CATEGORIES, compressImage, shotUrl, rs, today } from '../lib';
 
-function AmountInput({ value, onChange, autoFocus }) {
+function AmountInput({ value, onChange, autoFocus, label }) {
   return (
     <label className="amount-field">
-      <span className="amount-cur">Rs</span>
-      <input
-        inputMode="decimal"
-        placeholder="0"
-        value={value}
-        autoFocus={autoFocus}
-        style={{ width: `${Math.max(1, String(value || '0').length) + 0.6}ch` }}
-        onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
-        aria-label="Raqam"
-      />
+      {label && <span className="amount-label">{label}</span>}
+      <span className="amount-row">
+        <span className="amount-cur">Rs</span>
+        <input
+          inputMode="decimal"
+          placeholder="0"
+          value={value}
+          autoFocus={autoFocus}
+          style={{ width: `${Math.max(1, String(value || '0').length) + 0.6}ch` }}
+          onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
+          aria-label={label || 'Raqam'}
+        />
+      </span>
     </label>
   );
 }
@@ -50,43 +53,56 @@ function DeleteButton({ onDelete }) {
   );
 }
 
-export function ExpenseForm({ me, people, names, colors, initial, onSave, onDelete, busy }) {
-  const [a, b] = people;
+function DateRow({ date, setDate }) {
+  return (
+    <div className="field row">
+      <span className="field-label">Tareekh</span>
+      <input type="date" className="date-field" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+    </div>
+  );
+}
+
+/* ---------------- Kharcha ---------------- */
+export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDelete, busy }) {
+  const initSplit = initial ? (['half', 'full', 'self', 'custom'].includes(initial.split) ? initial.split : 'custom') : 'half';
+  const [paidBy, setPaidBy] = useState(initial?.paidBy || me);
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
   const [note, setNote] = useState(initial?.note || '');
-  const [category, setCategory] = useState(initial?.category || 'khana');
-  const [paidBy, setPaidBy] = useState(initial?.paidBy || me);
-  const [split, setSplit] = useState(initial?.split || 'half');
-  const [custom, setCustom] = useState(initial?.split === 'custom' ? String(initial.shares?.[a] ?? '') : '');
+  const [category, setCategory] = useState(initial?.category || 'sauda');
+  const [split, setSplit] = useState(initSplit);
+  const [custom, setCustom] = useState(initial && initSplit === 'custom' ? String(initial.calc?.owed ?? '') : '');
   const [date, setDate] = useState(initial?.date || today());
 
+  const other = names[otherId];
+  const debtor = paidBy === me ? otherId : me;
   const amt = Number(amount) || 0;
-  const shares = useMemo(() => {
-    if (split === 'half') return { [a]: amt / 2, [b]: amt - amt / 2 };
-    if (split === 'a') return { [a]: amt, [b]: 0 };
-    if (split === 'b') return { [a]: 0, [b]: amt };
-    const s = Math.min(Number(custom) || 0, amt);
-    return { [a]: s, [b]: amt - s };
-  }, [amt, split, custom, a, b]);
+  const owed = split === 'half' ? amt / 2 : split === 'full' ? amt : split === 'self' ? 0 : Math.min(Number(custom) || 0, amt);
+  const debtorName = debtor === me ? 'mera' : `${other} ka`;
+  const payerName = paidBy === me ? 'mera' : `${other} ka`;
 
-  const debtor = paidBy === a ? b : a;
-  const owes = shares[debtor];
-  const preview = amt <= 0
-    ? 'Raqam likho, hisaab yahan dikhega.'
-    : owes > 0
-      ? `${names[debtor]} ne ${names[paidBy]} ko ${rs(owes)} dene hain`
-      : `Poora kharcha ${names[paidBy]} ka apna hai, kisi ko kuch nahi dena`;
+  let preview = 'Raqam likho, hisaab yahan dikhega.';
+  if (amt > 0 && split === 'self') {
+    preview = `Ye poora ${payerName} apna kharcha hai, hisaab mein kuch nahi badlega.`;
+  } else if (amt > 0 && owed > 0) {
+    preview = debtor === me ? `Aap ne ${other} ko ${rs(owed)} dene hain` : `${other} ne aap ko ${rs(owed)} dene hain`;
+  } else if (amt > 0) preview = 'Hissa likho.';
 
   const submit = (ev) => {
     ev.preventDefault();
-    if (amt <= 0) return;
-    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, shares, date });
+    if (amt <= 0 || (owed <= 0 && split !== 'self')) return;
+    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date });
   };
 
   return (
-    <form className="form" onSubmit={submit} id="entry-form">
-      <AmountInput value={amount} onChange={setAmount} autoFocus={!initial} />
-      <input className="text-field" placeholder="Kis cheez ka? (jaise chai, sabzi)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
+    <form className="form" onSubmit={submit}>
+      <div className="field">
+        <span className="field-label">Kis ne paise diye?</span>
+        <Segmented name="paidBy" value={paidBy} onChange={setPaidBy}
+          options={[{ value: me, label: 'Main ne', color: colors[me] }, { value: otherId, label: `${other} ne`, color: colors[otherId] }]} />
+      </div>
+
+      <AmountInput label="Kul kitne diye?" value={amount} onChange={setAmount} autoFocus={!initial} />
+      <input className="text-field" placeholder="Kis cheez par? (sabzi, chai, program, kuch bhi)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
 
       <div className="chips" role="radiogroup" aria-label="Qisam">
         {CATEGORIES.map((c) => {
@@ -100,18 +116,13 @@ export function ExpenseForm({ me, people, names, colors, initial, onSave, onDele
       </div>
 
       <div className="field">
-        <span className="field-label">Kis ne pay kiya?</span>
-        <Segmented name="paidBy" value={paidBy} onChange={setPaidBy} options={people.map((p) => ({ value: p, label: names[p], color: colors[p] }))} />
-      </div>
-
-      <div className="field">
-        <span className="field-label">Kharcha kis kis ka hai?</span>
+        <span className="field-label">Ye kharcha kis ka tha?</span>
         <div className="split-grid">
           {[
-            { v: 'half', t: 'Aadha-aadha', s: amt ? `${rs(amt / 2)} har ek` : 'Dono ka barabar' },
-            { v: 'a', t: `Sirf ${names[a]} ka`, s: 'Poori raqam' },
-            { v: 'b', t: `Sirf ${names[b]} ka`, s: 'Poori raqam' },
-            { v: 'custom', t: 'Apni marzi', s: 'Hissa khud likho' },
+            { v: 'half', t: 'Dono ka, aadha-aadha', s: amt ? `${rs(amt / 2)} har ek` : 'Barabar baant' },
+            { v: 'full', t: `Sirf ${debtorName}`, s: amt ? `Poore ${rs(amt)}` : 'Poori raqam' },
+            { v: 'self', t: `Sirf ${payerName}`, s: 'Hisaab par asar nahi' },
+            { v: 'custom', t: 'Apni marzi', s: `${debtor === me ? 'Mera' : other + ' ka'} hissa likho` },
           ].map((o) => (
             <button type="button" key={o.v} className={'split-opt' + (split === o.v ? ' on' : '')} onClick={() => setSplit(o.v)} aria-pressed={split === o.v}>
               <strong>{o.t}</strong>
@@ -120,93 +131,156 @@ export function ExpenseForm({ me, people, names, colors, initial, onSave, onDele
           ))}
         </div>
         {split === 'custom' && (
-          <div className="custom-row">
-            <label>
-              <span style={{ color: colors[a] }}>{names[a]} ka hissa</span>
-              <input inputMode="decimal" value={custom} placeholder="0" onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ''))} />
-            </label>
-            <label>
-              <span style={{ color: colors[b] }}>{names[b]} ka hissa</span>
-              <input value={Math.max(0, amt - (Number(custom) || 0)) || ''} readOnly placeholder="0" />
-            </label>
-          </div>
+          <label className="custom-one">
+            <span>{debtor === me ? 'Mera' : `${other} ka`} hissa</span>
+            <input inputMode="decimal" value={custom} placeholder="0" autoFocus onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ''))} />
+          </label>
         )}
       </div>
 
-      <div className="field row">
-        <span className="field-label">Tareekh</span>
-        <input type="date" className="date-field" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
-      </div>
+      <DateRow date={date} setDate={setDate} />
 
-      <p className={'preview' + (amt > 0 && owes > 0 ? ' live' : '')}>{preview}</p>
+      <div className={'preview' + (amt > 0 && (owed > 0 || split === 'self') ? ' live' : '')}>
+        <p>{preview}</p>
+        {amt > 0 && owed > 0 && owed < amt && <small>Khata mein sirf {rs(owed)} likha jayega, poora bill nahi.</small>}
+        {amt > 0 && split === 'self' && <small>Ye sirf aap ko dikhega, {other} ko nahi.</small>}
+      </div>
 
       <div className="form-actions">
         {initial && <DeleteButton onDelete={onDelete} />}
-        <button className="btn primary" disabled={busy || amt <= 0}>{initial ? 'Tabdeeli save karo' : 'Kharcha save karo'}</button>
+        <button className="btn primary" disabled={busy || amt <= 0 || (owed <= 0 && split !== 'self')}>{initial ? 'Tabdeeli save karo' : 'Kharcha save karo'}</button>
       </div>
     </form>
   );
 }
 
-export function PaymentForm({ me, people, names, colors, balance, initial, prefillClear, onSave, onDelete, busy }) {
-  const [a, b] = people;
-  const defaultFrom = initial?.from || (balance.amount > 0 ? balance.from : me);
+/* ---------------- Payment ---------------- */
+export function PaymentForm({ me, otherId, names, colors, balance, initial, prefillClear, onSave, onDelete, busy, loan }) {
+  const other = names[otherId];
+  const defaultFrom = initial?.from || (loan ? otherId : balance.amount > 0 ? balance.from : me);
   const [from, setFrom] = useState(defaultFrom);
   const [amount, setAmount] = useState(initial ? String(initial.amount) : prefillClear && balance.amount > 0 ? String(Math.round(balance.amount)) : '');
   const [note, setNote] = useState(initial?.note || '');
   const [date, setDate] = useState(initial?.date || today());
-  const to = from === a ? b : a;
+  const [shot, setShot] = useState(null); // naya screenshot (dataUrl)
+  const [keepOld, setKeepOld] = useState(!!(initial && shotUrl(initial)));
+  const [shotErr, setShotErr] = useState('');
+  const fileInput = useRef();
+  const to = from === me ? otherId : me;
   const amt = Number(amount) || 0;
 
-  // Payment ke baad kya bachega (sirf nayi entry ke liye)
   const owedNow = balance.amount > 0 && balance.from === from ? balance.amount : 0;
   const creditNow = balance.amount > 0 && balance.from === to ? balance.amount : 0;
   let after = '';
   if (!initial && amt > 0) {
-    const net = owedNow - creditNow - amt; // + : from abhi bhi dega, - : to dega
-    if (Math.abs(net) < 0.5) after = 'Is ke baad hisaab bilkul barabar ho jayega.';
-    else if (net > 0) after = `Is ke baad ${names[from]} ne ${rs(net)} aur dene honge.`;
-    else after = `Is ke baad ${rs(-net)} ${names[to]} ke paas advance rahenge.`;
+    const net = owedNow - creditNow - amt;
+    const fromName = from === me ? 'Aap' : other;
+    const toName = to === me ? 'aap' : other;
+    const toCap = to === me ? 'Aap' : other;
+    const fromLow = from === me ? 'aap' : other;
+    if (loan) {
+      const n = creditNow + amt - owedNow; // ab "to" ne kitna dena hai
+      after = n > 0.5 ? `Is ke baad ${toCap} ne ${fromLow === 'aap' ? 'aap' : other} ko ${rs(n)} dene honge.` : 'Is ke baad hisaab barabar ho jayega.';
+    } else if (Math.abs(net) < 0.5) after = 'Is ke baad hisaab bilkul barabar ho jayega.';
+    else if (net > 0) after = `Is ke baad bhi ${fromName} ne ${rs(net)} aur dene honge.`;
+    else after = `Is ke baad ${rs(-net)} ${toName} ke paas advance rahenge.`;
   }
+
+  const pick = async (ev) => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!f) return;
+    setShotErr('');
+    try { setShot(await compressImage(f)); } catch (e) { setShotErr(e.message); }
+  };
 
   const submit = (ev) => {
     ev.preventDefault();
     if (amt <= 0) return;
-    onSave({ type: 'payment', amount: amt, from, note, date });
+    const body = { type: loan ? 'loan' : 'payment', amount: amt, from, note, date };
+    if (shot) body.screenshot = shot;
+    else if (initial && shotUrl(initial) && !keepOld) body.removeScreenshot = true;
+    onSave(body);
   };
+
+  const preview = shot || (keepOld && initial ? shotUrl(initial) : null);
 
   return (
     <form className="form" onSubmit={submit}>
       <div className="field">
-        <span className="field-label">Kis ne paise diye?</span>
-        <Segmented name="from" value={from} onChange={setFrom} options={people.map((p) => ({ value: p, label: names[p], color: colors[p] }))} />
-        <p className="flow-line">
-          <b style={{ color: colors[from] }}>{names[from]}</b> ne <b style={{ color: colors[to] }}>{names[to]}</b> ko diye
-        </p>
+        <span className="field-label">{loan ? 'Kis ne qarz diya?' : 'Kis ne paise bheje?'}</span>
+        <Segmented name="from" value={from} onChange={setFrom}
+          options={[{ value: me, label: 'Main ne', color: colors[me] }, { value: otherId, label: `${other} ne`, color: colors[otherId] }]} />
+        <p className="flow-line">{loan
+          ? (from === me ? `Aap ne ${other} ko qarz diya, ab ${other} ne wapas dena hai` : `${other} ne aap ko qarz diya, ab aap ne wapas dena hai`)
+          : (from === me ? `Aap ne ${other} ko bheje` : `${other} ne aap ko bheje`)}</p>
       </div>
 
       <AmountInput value={amount} onChange={setAmount} autoFocus={!initial} />
 
-      {!initial && owedNow > 0 && (
+      {!initial && !loan && owedNow > 0 && (
         <button type="button" className="quick-clear" onClick={() => setAmount(String(Math.round(owedNow)))}>
           Poora hisaab clear: <b>{rs(owedNow)}</b>
         </button>
       )}
 
-      <input className="text-field" placeholder="Note (jaise JazzCash, cash)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
+      <input className="text-field" placeholder={loan ? 'Kis liye? (jaise fees, ghar bhejne ke liye)' : 'Note (jaise JazzCash, Easypaisa, cash)'} value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
 
-      <div className="field row">
-        <span className="field-label">Tareekh</span>
-        <input type="date" className="date-field" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+      <div className="field">
+        <span className="field-label">Screenshot (agar chaho)</span>
+        <input ref={fileInput} type="file" accept="image/*" hidden onChange={pick} />
+        {preview ? (
+          <div className="shot-pick">
+            <img src={preview} alt="Payment ka screenshot" />
+            <div>
+              <button type="button" className="btn ghost small-g" onClick={() => fileInput.current.click()}>Badlo</button>
+              <button type="button" className="btn danger small-g" onClick={() => { setShot(null); setKeepOld(false); }}><X size={15} /> Hatao</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="shot-add" onClick={() => fileInput.current.click()}>
+            <ImagePlus size={20} />
+            <span><strong>Screenshot lagao</strong><small>Dono ke record mein saboot rahega</small></span>
+          </button>
+        )}
+        {shotErr && <p className="err">{shotErr}</p>}
       </div>
 
+      <DateRow date={date} setDate={setDate} />
+
       {after && <p className="preview live">{after}</p>}
-      <p className="hint">Purane kharche tareekh ke hisaab se, sab se purana pehle, khud tick ho jayenge.</p>
+      {!loan && <p className="hint">Purane kharche, sab se purana pehle, khud tick ho jayenge.</p>}
 
       <div className="form-actions">
         {initial && <DeleteButton onDelete={onDelete} />}
-        <button className="btn primary" disabled={busy || amt <= 0}>{initial ? 'Tabdeeli save karo' : 'Payment save karo'}</button>
+        <button className="btn primary" disabled={busy || amt <= 0}>{busy ? 'Save ho raha hai...' : initial ? 'Tabdeeli save karo' : loan ? 'Qarz save karo' : 'Payment save karo'}</button>
       </div>
+    </form>
+  );
+}
+
+/* ---------------- PIN badlo ---------------- */
+export function PinForm({ onSave, busy }) {
+  const [oldPin, setOld] = useState('');
+  const [newPin, setNew] = useState('');
+  const [again, setAgain] = useState('');
+  const [err, setErr] = useState('');
+  const digits = (v) => v.replace(/\D/g, '').slice(0, 6);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    setErr('');
+    if (newPin.length < 4) return setErr('Naya PIN kam se kam 4 hindson ka ho.');
+    if (newPin !== again) return setErr('Naya PIN dono dafa ek jaisa likho.');
+    try { await onSave(oldPin, newPin); } catch (e) { setErr(e.message); }
+  };
+  return (
+    <form className="form" onSubmit={submit}>
+      <label className="pin-field"><span>Purana PIN</span><input type="password" inputMode="numeric" autoComplete="current-password" value={oldPin} onChange={(e) => setOld(digits(e.target.value))} /></label>
+      <label className="pin-field"><span>Naya PIN</span><input type="password" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(e) => setNew(digits(e.target.value))} /></label>
+      <label className="pin-field"><span>Naya PIN dobara</span><input type="password" inputMode="numeric" autoComplete="new-password" value={again} onChange={(e) => setAgain(digits(e.target.value))} /></label>
+      {err && <p className="err">{err}</p>}
+      <p className="hint">PIN badalne ke baad doosre phones par aap ka account khud log out ho jayega.</p>
+      <button className="btn primary" disabled={busy || !oldPin || !newPin}>PIN badlo</button>
     </form>
   );
 }

@@ -275,3 +275,43 @@ h1, h2, h3, p { margin: 0; }
   body { background: #E3E9E5; }
   .app { background: var(--paper); box-shadow: 0 0 0 1px rgba(0,0,0,.04); }
 }
+
+/* ---------- v2 additions ---------- */
+.entry-amt.mine { color: var(--ok); }
+.entry-amt.theirs { color: var(--ink); }
+.entry.is-personal { opacity: .72; }
+.entry-title .clip { margin-left: 6px; vertical-align: -1px; color: var(--muted); }
+.ch-icon.loan { background: #FBEBD2; color: var(--part); }
+.amount-field { flex-direction: column; align-items: center; gap: 2px; }
+.amount-label { font-size: 13px; font-weight: 700; color: var(--muted); }
+.amount-row { display: flex; align-items: baseline; gap: 6px; }
+.custom-one { display: grid; gap: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.custom-one input { height: 48px; border: 1.5px solid var(--line); border-radius: 13px; padding: 0 14px; font-size: 18px; font-weight: 700; background: var(--surface); outline: 0; }
+.custom-one input:focus { border-color: var(--pine-2); }
+.preview { display: grid; gap: 3px; }
+.preview small { font-size: 12.5px; font-weight: 500; opacity: .85; }
+.shot-add { display: flex; align-items: center; gap: 12px; text-align: left; padding: 14px; border-radius: 16px; border: 1.5px dashed #A9CDBE; background: var(--surface); color: var(--pine); }
+.shot-add span { display: grid; }
+.shot-add small { color: var(--muted); font-size: 12.5px; }
+.shot-pick { display: flex; gap: 12px; align-items: center; background: var(--surface); padding: 10px; border-radius: 16px; }
+.shot-pick img { width: 74px; height: 96px; object-fit: cover; border-radius: 10px; background: var(--paper); }
+.shot-pick div { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.small-g { height: 38px; padding: 0 12px; border-radius: 12px; font-size: 14px; }
+.err { color: var(--due); font-size: 13.5px; font-weight: 600; }
+.shot h3 { font-size: 13.5px; color: var(--muted); margin: 0 4px 8px; }
+.shot-thumb { display: block; width: 100%; background: var(--surface); border-radius: 18px; padding: 8px; }
+.shot-thumb img { display: block; width: 100%; max-height: 280px; object-fit: contain; border-radius: 12px; }
+.viewer { position: fixed; inset: 0; z-index: 90; background: rgba(8, 14, 12, .92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; }
+.viewer img { max-width: 100%; max-height: 82dvh; border-radius: 12px; }
+.viewer span { color: #cfd9d4; font-size: 13px; }
+.locked-note { display: flex; gap: 8px; align-items: center; justify-content: center; color: var(--muted); font-size: 13.5px; background: var(--surface); padding: 12px; border-radius: 14px; }
+.pin-field { display: grid; gap: 6px; font-size: 13.5px; font-weight: 700; color: var(--muted); }
+.pin-field input { height: 52px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 16px; font-size: 22px; letter-spacing: .4em; background: var(--surface); outline: 0; }
+.pin-field input:focus { border-color: var(--pine-2); }
+.lock-back { position: absolute; top: calc(var(--safe-t) + 16px); left: 16px; display: inline-flex; align-items: center; gap: 2px; color: var(--pine-2); font-weight: 700; font-size: 14.5px; }
+.lock { position: relative; }
+.who-av.huge { width: 72px; height: 72px; font-size: 30px; margin-bottom: 6px; }
+.who-card .who-go { margin-left: auto; color: var(--muted); }
+.paid-legend.stack { flex-direction: column; gap: 6px; }
+.month-panel .paid-bar { margin-top: 14px; }
+.month-net { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; font-weight: 600; color: var(--pine); }

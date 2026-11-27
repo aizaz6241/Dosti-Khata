@@ -1,4 +1,4 @@
-import { Utensils, Coffee, ShoppingBag, Fuel, Car, Receipt, Shirt, CircleDot, ArrowLeftRight } from 'lucide-react';
+import { Utensils, Coffee, ShoppingBasket, Fuel, Car, Receipt, Shirt, CircleDot, ArrowLeftRight, PartyPopper, Pill, Ticket, HandCoins } from 'lucide-react';
 
 const LS = {
   get: (k, d = null) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -13,7 +13,6 @@ export async function api(path, { method = 'GET', body } = {}) {
     headers: {
       'Content-Type': 'application/json',
       'x-khata-token': LS.get('khata.token', ''),
-      'x-khata-user': LS.get('khata.me', ''),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -63,15 +62,72 @@ export const shortDay = (day) => {
 export const CATEGORIES = [
   { id: 'khana', label: 'Khana', icon: Utensils },
   { id: 'chai', label: 'Chai', icon: Coffee },
-  { id: 'sauda', label: 'Sauda', icon: ShoppingBag },
+  { id: 'sauda', label: 'Sabzi / sauda', icon: ShoppingBasket },
+  { id: 'program', label: 'Program', icon: PartyPopper },
   { id: 'petrol', label: 'Petrol', icon: Fuel },
   { id: 'kiraya', label: 'Kiraya', icon: Car },
   { id: 'bill', label: 'Bill', icon: Receipt },
   { id: 'kapray', label: 'Kapray', icon: Shirt },
+  { id: 'dawai', label: 'Dawai', icon: Pill },
+  { id: 'ticket', label: 'Ticket', icon: Ticket },
   { id: 'other', label: 'Kuch aur', icon: CircleDot },
 ];
-export const catOf = (id) => CATEGORIES.find((c) => c.id === id) || (id === 'payment' ? { id, label: 'Payment', icon: ArrowLeftRight } : CATEGORIES.at(-1));
+const SPECIAL = { payment: { id: 'payment', label: 'Payment', icon: ArrowLeftRight }, loan: { id: 'loan', label: 'Qarz', icon: HandCoins } };
+export const catOf = (id) => CATEGORIES.find((c) => c.id === id) || SPECIAL[id] || CATEGORIES.at(-1);
 
 export const haptic = (ms = 8) => { try { navigator.vibrate?.(ms); } catch {} };
 
 export const cap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
+
+// Screenshot ko chhota kar ke JPEG banao (taake jaldi upload ho)
+export function compressImage(file, max = 1400, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ye image khul nahi saki.')); };
+    img.src = url;
+  });
+}
+
+export const fileUrl = (id) => `/api/files/${id}?t=${encodeURIComponent(LS.get('khata.token', ''))}`;
+export const shotUrl = (e) => e.fileUrl || (e.fileId ? fileUrl(e.fileId) : null);
+
+// Har entry ko "mere" nazariye se samjhao: sirf doosre ka hissa
+export function view(e, me, names) {
+  const otherId = Object.keys(names).find((p) => p !== me);
+  const other = names[otherId];
+  if (e.type === 'loan') {
+    const mine = e.from === me;
+    return {
+      mine,
+      amount: e.amount,
+      line: mine ? `Aap ne ${other} ko qarz diya` : `${other} ne aap ko qarz diya`,
+    };
+  }
+  if (e.type === 'payment') {
+    const mine = e.from === me;
+    return {
+      mine,
+      amount: e.amount,
+      line: mine ? `Aap ne ${other} ko bheje` : `${other} ne aap ko bheje`,
+    };
+  }
+  const mine = e.paidBy === me;
+  if (e.calc.owed <= 0) return { mine, amount: e.amount, line: 'Aap ka apna kharcha', personal: true };
+  return {
+    mine,
+    amount: e.calc.owed,
+    line: mine ? `Aap ne ${other} ke liye diye` : `${other} ne aap ke liye diye`,
+  };
+}
+// Apna (sirf ek ka) kharcha sirf usi ko dikhe jis ne kiya
+export const visible = (me) => (e) => e.type !== 'expense' || e.calc.owed > 0 || e.paidBy === me || e.createdBy === me;

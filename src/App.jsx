@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, Repeat, Smartphone } from 'lucide-react';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins } from 'lucide-react';
 import { api, LS, thisMonth, haptic } from './lib';
 import Sheet from './components/Sheet';
 import EntryDetail from './components/EntryDetail';
-import { ExpenseForm, PaymentForm } from './components/Forms';
-import { Home, Khata, Mahina, Lock, WhoAmI, InstallGuide } from './screens';
+import { ExpenseForm, PaymentForm, PinForm } from './components/Forms';
+import { Home, Khata, Mahina, Lock, InstallGuide } from './screens';
 
 const COLORS = { aizaz: '#3D52D5', abdullah: '#D4931A' };
+const DEFAULT_PEOPLE = [{ id: 'aizaz', name: 'Aizaz' }, { id: 'abdullah', name: 'Abdullah' }];
 
 export default function App() {
   const [token, setToken] = useState(LS.get('khata.token'));
   const [me, setMe] = useState(LS.get('khata.me'));
-  const [people, setPeople] = useState(LS.get('khata.people', [{ id: 'aizaz', name: 'Aizaz' }, { id: 'abdullah', name: 'Abdullah' }]));
+  const [people, setPeople] = useState(LS.get('khata.people', DEFAULT_PEOPLE));
   const [data, setData] = useState(LS.get('khata.cache'));
   const [month, setMonth] = useState(thisMonth());
   const [khataMonth, setKhataMonth] = useState(thisMonth());
@@ -27,11 +28,14 @@ export default function App() {
   const toastT = useRef();
 
   const names = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p.name])), [people]);
-  const ids = people.map((p) => p.id);
+  const otherId = people.map((p) => p.id).find((p) => p !== me);
 
-  const say = (t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2400); };
+  const say = (t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2600); };
 
-  const logout = useCallback(() => { LS.del('khata.token'); LS.del('khata.cache'); setToken(null); setData(null); }, []);
+  const logout = useCallback(() => {
+    ['khata.token', 'khata.cache', 'khata.me'].forEach(LS.del);
+    setToken(null); setData(null); setMe(null);
+  }, []);
 
   const load = useCallback(async () => {
     if (!LS.get('khata.token')) return;
@@ -51,6 +55,9 @@ export default function App() {
     document.addEventListener('visibilitychange', v);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', v); };
   }, [load]);
+  useEffect(() => { // naam server se (agar badle hon)
+    api('/people').then((r) => { setPeople(r.people); LS.set('khata.people', r.people); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const h = (e) => { e.preventDefault(); setInstallEvt(e); };
@@ -59,12 +66,12 @@ export default function App() {
   }, []);
   const standalone = typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);
 
-  const login = async (pin, reset) => {
+  const login = async (user, pin, reset) => {
     setBusy(true); setLoginErr('');
     try {
-      const r = await api('/login', { method: 'POST', body: { pin } });
-      LS.set('khata.token', r.token); LS.set('khata.people', r.people);
-      setPeople(r.people); setToken(r.token);
+      const r = await api('/login', { method: 'POST', body: { user, pin } });
+      LS.set('khata.token', r.token); LS.set('khata.me', r.me); LS.set('khata.people', r.people);
+      setPeople(r.people); setMe(r.me); setToken(r.token);
     } catch (e) { setLoginErr(e.message); reset(); haptic(60); }
     setBusy(false);
   };
@@ -76,7 +83,7 @@ export default function App() {
       else await api('/entries', { method: 'POST', body });
       haptic(12);
       setSheet(null);
-      say(entry ? 'Tabdeeli save ho gayi' : body.type === 'payment' ? 'Payment save ho gayi' : 'Kharcha save ho gaya');
+      say(entry ? 'Tabdeeli save ho gayi' : { payment: 'Payment save ho gayi', loan: 'Qarz save ho gaya', expense: 'Kharcha save ho gaya' }[body.type]);
       await load();
     } catch (e) { say(e.message); }
     setBusy(false);
@@ -87,36 +94,46 @@ export default function App() {
     catch (e) { say(e.message); }
     setBusy(false);
   };
+  const changePin = async (oldPin, newPin) => {
+    setBusy(true);
+    try {
+      const r = await api('/pin', { method: 'POST', body: { oldPin, newPin } });
+      LS.set('khata.token', r.token); setToken(r.token);
+      setSheet(null); say('PIN badal gaya');
+    } finally { setBusy(false); }
+  };
 
-  if (!token) return <Lock onLogin={login} people={people} error={loginErr} busy={busy} />;
-  if (!me || !ids.includes(me)) return <WhoAmI people={people} onPick={(id) => { LS.set('khata.me', id); setMe(id); }} />;
+  if (!token || !me) return <Lock people={people} colors={COLORS} onLogin={login} error={loginErr} busy={busy} />;
   if (!data) return <div className="boot"><span className="spinner" /></div>;
 
   const byId = Object.fromEntries(data.entries.map((e) => [e._id, e]));
   const open = (e) => setSheet({ kind: 'detail', entry: byId[e._id] || e });
   const add = (kind, opts = {}) => { haptic(); setSheet({ kind, ...opts }); };
   const balance = data.balance;
-  const changeMonth = (m) => setMonth(m);
-  const other = ids.find((p) => p !== me);
+  const common = { me, otherId, names, colors: COLORS };
 
   const screens = {
-    home: <Home data={data} me={me} names={names} colors={COLORS} onAdd={add} onOpen={open} goKhata={() => setTab('khata')}
+    home: <Home data={data} {...common} onAdd={add} onOpen={open} goKhata={() => setTab('khata')}
       canInstall={!standalone && !installHidden} onInstall={() => setSheet({ kind: 'install' })}
       onDismissInstall={() => { setInstallHidden(true); LS.set('khata.installHidden', true); }} />,
-    khata: <Khata data={data} names={names} colors={COLORS} onOpen={open} month={khataMonth} setMonth={setKhataMonth} />,
-    mahina: <Mahina data={data} me={me} names={names} colors={COLORS} month={month} setMonth={changeMonth} />,
+    khata: <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} />,
+    mahina: <Mahina data={data} {...common} setMonth={setMonth} />,
   };
 
   const s = sheet;
-  const formProps = { me, people: ids, names, colors: COLORS, busy };
+  const formProps = { ...common, busy };
   let sheetTitle = '', sheetBody = null;
   if (s?.kind === 'expense') { sheetTitle = 'Naya kharcha'; sheetBody = <ExpenseForm {...formProps} onSave={(b) => save(b)} />; }
-  if (s?.kind === 'payment') { sheetTitle = 'Paise diye'; sheetBody = <PaymentForm {...formProps} balance={balance} prefillClear={s.clear} onSave={(b) => save(b)} />; }
-  if (s?.kind === 'detail') { sheetTitle = s.entry.type === 'payment' ? 'Payment' : 'Kharcha'; sheetBody = <EntryDetail e={s.entry} byId={byId} names={names} colors={COLORS} onOpen={open} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })} />; }
+  if (s?.kind === 'loan') { sheetTitle = 'Qarz'; sheetBody = <PaymentForm {...formProps} loan balance={balance} onSave={(b) => save(b)} />; }
+  if (s?.kind === 'payment') { sheetTitle = 'Paise bheje'; sheetBody = <PaymentForm {...formProps} balance={balance} prefillClear={s.clear} onSave={(b) => save(b)} />; }
+  if (s?.kind === 'detail') {
+    sheetTitle = { payment: 'Payment', loan: 'Qarz', expense: 'Kharcha' }[s.entry.type];
+    sheetBody = <EntryDetail e={s.entry} {...common} byId={byId} onOpen={open} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })} />;
+  }
   if (s?.kind === 'edit') {
     sheetTitle = 'Entry badlo';
-    sheetBody = s.entry.type === 'payment'
-      ? <PaymentForm {...formProps} balance={balance} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />
+    sheetBody = s.entry.type !== 'expense'
+      ? <PaymentForm {...formProps} loan={s.entry.type === 'loan'} balance={balance} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />
       : <ExpenseForm {...formProps} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />;
   }
   if (s?.kind === 'chooser') {
@@ -125,29 +142,32 @@ export default function App() {
       <div className="chooser">
         <motion.button whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'expense' })}>
           <span className="ch-icon"><Receipt size={22} /></span>
-          <span><strong>Kharcha</strong><small>Dukaan, khana, chai, kuch bhi jo kisi ne pay kiya</small></span>
+          <span><strong>Kharcha</strong><small>Kisi ne doosre ke liye paise diye: sabzi, khana, program, kuch bhi</small></span>
         </motion.button>
         <motion.button whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'payment' })}>
           <span className="ch-icon pay"><ArrowUpRight size={22} /></span>
-          <span><strong>Paise diye</strong><small>Ek ne doosre ko hisaab ke paise bheje</small></span>
+          <span><strong>Paise bheje</strong><small>Hisaab clear karne ke liye ek ne doosre ko paise bheje</small></span>
+        </motion.button>
+        <motion.button whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'loan' })}>
+          <span className="ch-icon loan"><HandCoins size={22} /></span>
+          <span><strong>Qarz</strong><small>Ek ne doosre ko udhaar diya, jo wapas karna hai</small></span>
         </motion.button>
       </div>
     );
   }
   if (s?.kind === 'install') { sheetTitle = 'Phone par lagao'; sheetBody = <InstallGuide prompt={installEvt} onPrompt={async () => { installEvt.prompt(); await installEvt.userChoice; setInstallEvt(null); setSheet(null); }} />; }
+  if (s?.kind === 'pin') { sheetTitle = 'PIN badlo'; sheetBody = <PinForm busy={busy} onSave={changePin} />; }
   if (s?.kind === 'settings') {
-    sheetTitle = 'Settings';
+    sheetTitle = 'Mera account';
     sheetBody = (
       <div className="settings">
         <div className="me-card" style={{ '--c': COLORS[me] }}>
           <span className="who-av">{names[me][0]}</span>
-          <div><strong>{names[me]}</strong><small>Is phone par aap ka naam</small></div>
+          <div><strong>{names[me]}</strong><small>Aap ka apna account</small></div>
         </div>
-        <button className="set-row" onClick={() => { LS.set('khata.me', other); setMe(other); setSheet(null); say(`Ab app ${names[other]} ke naam se hai`); }}>
-          <Repeat size={18} /> Main {names[other]} hoon, naam badlo
-        </button>
+        <button className="set-row" onClick={() => setSheet({ kind: 'pin' })}><KeyRound size={18} /> PIN badlo</button>
         {!standalone && <button className="set-row" onClick={() => setSheet({ kind: 'install' })}><Smartphone size={18} /> Phone par app lagao</button>}
-        <button className="set-row danger" onClick={() => { setSheet(null); logout(); }}><LogOut size={18} /> App lock karo</button>
+        <button className="set-row danger" onClick={() => { setSheet(null); logout(); }}><LogOut size={18} /> Log out</button>
       </div>
     );
   }
@@ -168,7 +188,7 @@ export default function App() {
           <p className="hello-name">{names[me]}</p>
         </div>
         {offline && <span className="offline">Offline, purana data</span>}
-        <button className="avatar" style={{ '--c': COLORS[me] }} onClick={() => setSheet({ kind: 'settings' })} aria-label="Settings">{names[me][0]}</button>
+        <button className="avatar" style={{ '--c': COLORS[me] }} onClick={() => setSheet({ kind: 'settings' })} aria-label="Mera account">{names[me][0]}</button>
       </header>
 
       <main>

@@ -35,7 +35,7 @@ export function computeLedger(entries, people) {
       debtor = other(e.paidBy, people);
       amount = round(Number(e.shares?.[debtor] || 0));
     } else {
-      // payment: from -> to. "to" ab "from" ka utna qarzdaar hai.
+      // payment ya qarz: from -> to. "to" ab "from" ka utna qarzdaar hai.
       creditor = e.from;
       debtor = e.to;
       amount = round(Number(e.amount));
@@ -76,7 +76,7 @@ export function computeLedger(entries, people) {
     const r = info.get(id);
     const left = round(remainingById.get(id) || 0);
     let status;
-    if (e.type === 'expense') {
+    if (e.type === 'expense' || e.type === 'loan') {
       if (r.owed <= 0) status = 'personal';
       else if (left <= 0) status = 'clear';
       else if (left < r.owed) status = 'partial';
@@ -105,28 +105,25 @@ export function computeLedger(entries, people) {
 }
 
 export function monthStats(entries, people, monthKey) {
-  // monthKey: "2026-11"
+  // Sirf aapas ka len-den: kis ne doosre ke liye kitna diya, kis ne kitni payment bheji.
+  // Poora bill nahi gina jata, sirf doosre ka hissa.
   const inMonth = entries.filter((e) => String(e.date).slice(0, 7) === monthKey);
-  const stats = {
-    month: monthKey,
-    total: 0,
-    count: 0,
-    paid: Object.fromEntries(people.map((p) => [p, 0])),
-    share: Object.fromEntries(people.map((p) => [p, 0])),
-    sent: Object.fromEntries(people.map((p) => [p, 0])),
-    categories: {},
-    days: {},
-  };
+  const zero = () => Object.fromEntries(people.map((p) => [p, 0]));
+  const stats = { month: monthKey, count: 0, total: 0, forOther: zero(), sent: zero(), lent: zero(), categories: {}, days: {} };
   for (const e of inMonth) {
     const day = String(e.date).slice(0, 10);
     if (e.type === 'expense') {
-      stats.total = round(stats.total + e.amount);
+      const debtor = other(e.paidBy, people);
+      const v = round(Number(e.shares?.[debtor] || 0));
+      if (v <= 0) continue;
       stats.count++;
-      stats.paid[e.paidBy] = round(stats.paid[e.paidBy] + e.amount);
-      for (const p of people) stats.share[p] = round(stats.share[p] + Number(e.shares?.[p] || 0));
+      stats.total = round(stats.total + v);
+      stats.forOther[e.paidBy] = round(stats.forOther[e.paidBy] + v);
       const c = e.category || 'other';
-      stats.categories[c] = round((stats.categories[c] || 0) + e.amount);
-      stats.days[day] = round((stats.days[day] || 0) + e.amount);
+      stats.categories[c] = round((stats.categories[c] || 0) + v);
+      stats.days[day] = round((stats.days[day] || 0) + v);
+    } else if (e.type === 'loan') {
+      stats.lent[e.from] = round(stats.lent[e.from] + e.amount);
     } else {
       stats.sent[e.from] = round(stats.sent[e.from] + e.amount);
     }

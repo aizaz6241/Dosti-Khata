@@ -10,7 +10,7 @@ export function StatusPill({ e }) {
     if (c.status === 'partial') return <span className="pill part">{rs(c.left)} baqi</span>;
     return <span className="pill due">Baqi</span>;
   }
-  if (c.status === 'used') return <span className="pill ok"><Check size={13} strokeWidth={3} /> Hisaab mein lag gaye</span>;
+  if (c.status === 'used') return <span className="pill ok"><Check size={13} strokeWidth={3} /> Lag gaye</span>;
   return <span className="pill adv">{rs(c.left)} advance</span>;
 }
 

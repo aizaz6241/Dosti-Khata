@@ -145,6 +145,19 @@ async function runReminders(now, force) {
   return { at: t, done };
 }
 
+// Poora khata saaf (sirf owner ke secret se). Accounts, PIN aur notifications rehti hain.
+app.post('/api/admin/reset', async (req, res, next) => {
+  try {
+    if (req.get('x-admin-key') !== SECRET || SECRET === 'dosti-khata-dev-secret' && process.env.NODE_ENV === 'production') return res.status(403).json({ error: 'Ijazat nahi.' });
+    const rows = await store.entries.all();
+    for (const r of rows) { if (hasShot(r)) await dropShot(r); await store.entries.remove(String(r._id)); }
+    const acts = await store.activity.all();
+    for (const a of acts) await store.activity.remove(String(a._id));
+    broadcast('change', { action: 'reset', at: Date.now() });
+    res.json({ entries: rows.length, activity: acts.length });
+  } catch (e) { next(e); }
+});
+
 app.all('/api/cron/tick', async (req, res, next) => {
   try {
     // Test ke liye: sirf secret ke saath waqt badal sakte hain

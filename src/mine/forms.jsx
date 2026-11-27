@@ -295,13 +295,15 @@ export function AccountForm({ initial, onSave, onDelete }) {
       </div>
       <div className="field">
         <span className="field-label">Currency</span>
-        <div className="chips wrap">
-          {CURRENCIES.map((c) => <button type="button" key={c} className={'chip' + (currency === c ? ' on' : '')} onClick={() => setCurrency(c)}>{c}</button>)}
-        </div>
+        {initial ? <p className="hint">{currency}: purane account ki currency nahi badal sakti (hisaab ghalat ho jayega). Doosri currency chahiye to naya account banao.</p> : (
+          <div className="chips wrap">
+            {CURRENCIES.map((c) => <button type="button" key={c} className={'chip' + (currency === c ? ' on' : '')} onClick={() => setCurrency(c)}>{c}</button>)}
+          </div>
+        )}
       </div>
       <label className="custom-one">
         <span>{initial ? 'Shuru ki raqam' : 'Abhi is mein kitne hain?'} ({currency})</span>
-        <input inputMode="decimal" value={opening} placeholder="0" onChange={(e) => setOpening(e.target.value.replace(/[^\d.-]/g, ''))} />
+        <input inputMode="decimal" value={opening} placeholder="0" onChange={(e) => { const v = e.target.value.replace(/[^\d.-]/g, ''); setOpening((v.startsWith('-') ? '-' : '') + v.replace(/-/g, '')); }} />
       </label>
       {initial && <p className="hint">Balance theek karna ho to account khol kar "Balance theek karo" dabao, taake purana hisaab na badle.</p>}
       <div className="form-actions">

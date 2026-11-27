@@ -1,7 +1,7 @@
 // "Mera Hisaab": apna paisa, apna kharcha, logon ka khata. Sirf aap ko dikhta hai.
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, HandCoins, ChevronRight, FileDown, TrendingDown, TrendingUp, Lock, Search, X, MessageCircle, PiggyBank, Users, Flame, Gauge, Target } from 'lucide-react';
+import { Plus, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, HandCoins, ChevronRight, FileDown, TrendingDown, TrendingUp, Lock, Search, X, MessageCircle, PiggyBank, Users, Flame, Gauge, Target, RefreshCw } from 'lucide-react';
 import { idOf, toPKR } from '../../server/money.js';
 import { dayLabel, monthName, monthShort, shortDay, thisMonth, timeLabel, today } from '../lib';
 import PeriodBar from './PeriodBar';
@@ -95,15 +95,94 @@ function EmptyMera({ onNewAccount, otherName }) {
   );
 }
 
+/* ---------------- Budget ring + category budgets ---------------- */
+const level = (spent, lim) => (spent > lim ? 'over' : spent > lim * 0.8 ? 'warn' : 'ok');
+export function Ring({ pct, size = 112, stroke = 11, children, tone }) {
+  const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
+  return (
+    <div className="ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} className="ring-bg" strokeWidth={stroke} />
+        <motion.circle cx={size / 2} cy={size / 2} r={r} className={'ring-fg ' + tone} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} initial={{ strokeDashoffset: c }} animate={{ strokeDashoffset: c * (1 - Math.min(1, pct)) }} transition={{ duration: 0.9, ease: [0.2, 0.8, 0.2, 1] }}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      </svg>
+      <div className="ring-in">{children}</div>
+    </div>
+  );
+}
+export function CatBudgetList({ catBudgets, byCat, max = 99 }) {
+  const rows = Object.entries(catBudgets || {}).map(([id, lim]) => ({ id, lim, spent: byCat[id] || 0, c: catInfo(id) }))
+    .sort((a, b) => b.spent / b.lim - a.spent / a.lim).slice(0, max);
+  if (!rows.length) return null;
+  return (
+    <div className="cbl">
+      {rows.map(({ id, lim, spent, c }) => {
+        const I = c.icon; const lv = level(spent, lim);
+        return (
+          <div key={id} className="cbl-row">
+            <span className={'cbl-ic ' + lv}><I size={15} /></span>
+            <span className="cbl-main">
+              <span className="cbl-top"><b>{c.label}</b><small className={lv}>{spent > lim ? `${money(spent - lim)} upar` : `${money(lim - spent)} baqi`}</small></span>
+              <span className="b-bar thin"><motion.i className={lv === 'ok' ? '' : lv} initial={{ width: 0 }} animate={{ width: Math.min(100, (spent / lim) * 100) + '%' }} /></span>
+              <small className="cbl-sub">{money(spent)} / {money(lim)}</small>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BudgetHome({ report, budget, catBudgets, otherName, onGo, onBudget }) {
+  const t = today(); const [y, m] = report.month.split('-').map(Number);
+  const daysIn = new Date(y, m, 0).getDate(); const day = Number(t.slice(8)); const left = Math.max(0, daysIn - day);
+  const pct = budget > 0 ? report.spent / budget : 0; const lv = budget > 0 ? level(report.spent, budget) : 'ok';
+  const hasCat = Object.keys(catBudgets || {}).length > 0;
+  return (
+    <section className="btrack">
+      <header className="bt-head">
+        <button className="bt-title" onClick={() => onGo('analytics')}><b>{monthName(report.month)}</b><ChevronRight size={16} /></button>
+        <button className="text-btn" onClick={onBudget}><Target size={15} /> {budget > 0 || hasCat ? 'Budget badlo' : 'Budget rakho'}</button>
+      </header>
+      {budget > 0 ? (
+        <div className="bt-main">
+          <Ring pct={pct} tone={lv}>
+            <b>{Math.round(pct * 100)}%</b><small>istemal</small>
+          </Ring>
+          <div className="bt-side">
+            <span className="bt-l">Kharch hua</span>
+            <b className="bt-big">{money(report.spent)}</b>
+            <span className="bt-of">{money(budget)} ke budget mein se</span>
+            <span className={'bt-left ' + lv}>{report.spent > budget ? `${money(report.spent - budget)} upar chala gaya` : `${money(budget - report.spent)} baqi`}</span>
+            {report.spent <= budget && left > 0 && <span className="bt-day">Roz {money(Math.floor((budget - report.spent) / left))} tak, {left} din</span>}
+          </div>
+        </div>
+      ) : null}
+      <div className="bt-stats">
+        <div><span><ArrowDownLeft size={13} /> Aaye</span><b className="pos">{money(report.income)}</b></div>
+        <div><span><ArrowUpRight size={13} /> Gaye</span><b className="neg">{money(report.spent)}</b></div>
+        <div><span>Bacha</span><b className={report.saved < 0 ? 'neg' : ''}>{money(report.saved)}</b></div>
+      </div>
+      {hasCat && <CatBudgetList catBudgets={catBudgets} byCat={report.byCat} max={3} />}
+      {!budget && !hasCat && <button className="bt-cta" onClick={onBudget}><Target size={18} /><span><b>Mahine ka budget rakho</b><small>Kul had aur har category (khana, safar, family...) ki alag had</small></span><ChevronRight size={16} /></button>}
+      {report.khata > 0 && <p className="mm-note">Kharche mein {otherName} wale khate ka aap ka hissa {money(report.khata)} bhi shamil hai</p>}
+    </section>
+  );
+}
+
 /* ---------------- Home ---------------- */
-export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe, rates, live, otherName, budget, onAdd, onOpenAccount, onOpenTxn, onNewAccount, onRates, onAll, onGo }) {
+export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe, rates, live, otherName, budget, catBudgets, onBudget, onRefresh, onAdd, onOpenAccount, onOpenTxn, onNewAccount, onRates, onAll, onGo }) {
   const accounts = mine.accounts.filter((a) => !a.archived);
   const recent = useMemo(() => [...allTx].sort(sortTx).slice(0, 8), [allTx]);
+  const [spin, setSpin] = useState(false); // hooks hamesha return se pehle
   if (!accounts.length) return <EmptyMera onNewAccount={onNewAccount} otherName={otherName} />;
   const needRate = Object.keys(worth.unconverted).length > 0;
+  const refresh = async () => { if (spin) return; setSpin(true); await onRefresh?.(); setTimeout(() => setSpin(false), 400); };
   return (
     <div className="screen">
       <section className="hero mera-hero">
+        <motion.button className={'hero-refresh' + (spin ? ' spin' : '')} whileTap={{ scale: 0.88 }} onClick={refresh} aria-label="Sab refresh karo"><RefreshCw size={17} /></motion.button>
         <p className="private light"><Lock size={12} /> Sirf aap ko dikhta hai</p>
         <p className="hero-line">Kul paisa</p>
         <motion.p className="hero-amt" key={Math.round(worth.pkr)} initial={{ opacity: 0.4, y: 4 }} animate={{ opacity: 1, y: 0 }}>{money(worth.pkr)}</motion.p>
@@ -132,21 +211,7 @@ export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe,
         </div>
       </section>
 
-      <motion.button className="month-mini" whileTap={{ scale: 0.98 }} onClick={() => onGo('analytics')}>
-        <span className="mm-head"><b>{monthName(report.month)}</b><span>Analytics <ChevronRight size={15} /></span></span>
-        <span className="mm-stats">
-          <span><small>Kharcha</small><b>{money(report.spent)}</b></span>
-          <span><small>Aamdani</small><b className="pos">{money(report.income)}</b></span>
-          <span><small>Bacha</small><b className={report.saved < 0 ? 'neg' : 'pos'}>{money(report.saved)}</b></span>
-        </span>
-        {budget > 0 && (
-          <span className="mm-budget">
-            <span className="b-bar"><motion.i className={report.spent > budget ? 'over' : report.spent > budget * 0.8 ? 'warn' : ''} initial={{ width: 0 }} animate={{ width: Math.min(100, (report.spent / budget) * 100) + '%' }} /></span>
-            <small>{report.spent > budget ? `Budget se ${money(report.spent - budget)} upar` : `Budget ${money(budget)} mein se ${money(budget - report.spent)} baqi`}</small>
-          </span>
-        )}
-        {report.khata > 0 && <span className="mm-note">Kharche mein {otherName} wale khate ka aap ka hissa {money(report.khata)} bhi shamil hai</span>}
-      </motion.button>
+      <BudgetHome report={report} budget={budget} catBudgets={catBudgets} otherName={otherName} onGo={onGo} onBudget={onBudget} />
 
       <section className="list-block">
         <header className="block-head">
@@ -205,7 +270,7 @@ export function MeraAccounts({ mine, balances, worth, rates, live, otherName, on
 
 /* ---------------- Analytics ---------------- */
 const inPKR = (t, accounts, rates) => toPKR(Math.abs(t.amount), accounts.find((a) => idOf(a) === t.accountId)?.currency || 'PKR', rates);
-export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, reportFor, budget, onBudget, otherName, onPdf, minDate }) {
+export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, reportFor, budget, catBudgets = {}, onBudget, otherName, onPdf, minDate }) {
   const r = reportRange(period);
   const t = today();
   const bk = useMemo(() => buckets(period, minDate), [period, minDate]);
@@ -270,15 +335,16 @@ export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, re
       </section>
 
       {isMonth && (
-        budget > 0 ? (
+        budget > 0 || Object.keys(catBudgets).length ? (
           <section className="panel budget">
             <header className="panel-head row2"><h2>Budget</h2><button className="text-btn" onClick={onBudget}>Badlo</button></header>
-            <div className="b-bar"><motion.i className={r.spent > budget ? 'over' : r.spent > budget * 0.8 ? 'warn' : ''} initial={{ width: 0 }} animate={{ width: Math.min(100, (r.spent / budget) * 100) + '%' }} /></div>
-            <p className="b-line"><b>{money(r.spent)}</b> / {money(budget)} ({Math.round((r.spent / budget) * 100)}%)</p>
-            {r.spent > budget ? <p className="b-msg over">Budget se {money(r.spent - budget)} zyada ho gaya. Ab hath rok lo.</p>
+            {budget > 0 && <><div className="b-bar"><motion.i className={r.spent > budget ? 'over' : r.spent > budget * 0.8 ? 'warn' : ''} initial={{ width: 0 }} animate={{ width: Math.min(100, (r.spent / budget) * 100) + '%' }} /></div>
+            <p className="b-line"><b>{money(r.spent)}</b> / {money(budget)} ({Math.round((r.spent / budget) * 100)}%)</p></>}
+            {!(budget > 0) ? null : r.spent > budget ? <p className="b-msg over">Budget se {money(r.spent - budget)} zyada ho gaya. Ab hath rok lo.</p>
               : cur ? <p className="b-msg">{money(budget - r.spent)} baqi. {left > 0 ? <>Agle {left} din mein roz <b>{money(Math.floor((budget - r.spent) / left))}</b> tak chala sakte ho.</> : null}</p>
                 : <p className="b-msg">{money(budget - r.spent)} bach gaye. Shabash.</p>}
-            {projection != null && projection > budget && r.spent <= budget && <p className="b-msg warn">Dhyan: is raftar se mahina budget se {money(projection - budget)} upar jayega.</p>}
+            {budget > 0 && projection != null && projection > budget && r.spent <= budget && <p className="b-msg warn">Dhyan: is raftar se mahina budget se {money(projection - budget)} upar jayega.</p>}
+            {Object.keys(catBudgets).length > 0 && <><p className="cbl-h">Har category</p><CatBudgetList catBudgets={catBudgets} byCat={r.byCat} /></>}
           </section>
         ) : (
           <button className="panel budget-cta" onClick={onBudget}><Target size={20} /><span><b>Mahine ka budget rakho</b><small>Pata chalta rahega kitna baqi hai aur roz kitna chala sakte ho</small></span><ChevronRight size={18} /></button>

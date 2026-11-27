@@ -5,23 +5,26 @@ const T = (ms) => AbortSignal.timeout(ms);
 const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 const r2 = (n) => Math.round(n * 100) / 100;
 
-// Binance P2P: USDT bechne par kitne PKR milte hain (sab se upar wala ad, ajeeb ho to beech wala)
+// Binance P2P: USDT bechne par aam taur par kitne PKR milte hain
 export async function binanceSell(fetchFn = fetch) {
   const res = await fetchFn('https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0', clienttype: 'web' },
-    body: JSON.stringify({ fiat: 'PKR', asset: 'USDT', tradeType: 'SELL', page: 1, rows: 10, payTypes: [], countries: [], publisherType: null, proMerchantAds: false, shieldMerchantAds: false, filterType: 'all', periods: [], additionalKycVerifyFilter: 0, classifies: ['mass', 'profession', 'fiat_trade'] }),
+    body: JSON.stringify({ fiat: 'PKR', asset: 'USDT', tradeType: 'SELL', page: 1, rows: 20, payTypes: [], countries: [], publisherType: null, proMerchantAds: false, shieldMerchantAds: false, filterType: 'all', periods: [], additionalKycVerifyFilter: 0, classifies: ['mass', 'profession', 'fiat_trade'] }),
     signal: T(7000),
   });
   if (!res.ok) throw new Error('binance ' + res.status);
   const j = await res.json();
-  const ads = (j?.data || []).map((d) => ({ price: Number(d?.adv?.price), min: Number(d?.adv?.minSingleTransAmount) || 0 })).filter((a) => a.price > 50 && a.price < 2000);
+  const ads = (j?.data || []).map((d) => ({
+    price: Number(d?.adv?.price), min: Number(d?.adv?.minSingleTransAmount) || 0,
+    orders: Number(d?.advertiser?.monthOrderCount) || 0, ok: d?.adv?.isTradable !== false,
+  })).filter((a) => a.ok && a.price > 50 && a.price < 2000);
   if (!ads.length) throw new Error('binance: koi ad nahi');
-  // Bari had (jaise 2 lakh se upar) wale ads aam bande ke kaam ke nahi, un ka rate alag hota hai
-  const normal = ads.filter((a) => a.min <= 50000);
-  const prices = (normal.length >= 3 ? normal : ads).map((a) => a.price);
-  const top = prices[0]; const mid = median(prices.slice(0, 5));
-  return r2(Math.abs(top - mid) / mid > 0.03 ? mid : top);
+  // Naye / kam saudon wale ya sirf lakhon ka sauda karne wale ads ka rate ajeeb hota hai (Binance app bhi unhein upar nahi dikhati).
+  // Bharosemand (mahine mein 50+ sauday, 20 hazar tak ka sauda bhi karein) ke pehle 10 ka beech wala rate = aam bechne ka rate.
+  const trusted = ads.filter((a) => a.orders >= 50 && a.min <= 20000);
+  const pool = (trusted.length >= 3 ? trusted : ads).slice(0, 10).map((a) => a.price);
+  return r2(median(pool));
 }
 
 async function coingecko(fetchFn = fetch) {

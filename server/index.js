@@ -3,12 +3,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.js';
-import { computeLedger, monthStats, other, dueBefore } from './ledger.js';
+import { computeLedger, other, dueBefore } from './ledger.js';
 import { setupPush } from './push.js';
 import { snapshot, diff, shareOf } from './activity.js';
 import { createAI } from './ai.js';
 import { personalRoutes } from './personal.js';
 import { createRates } from './rates.js';
+import { hookRoutes, hookAdminRoutes } from './hook.js';
 import { UTApi, UTFile } from 'uploadthing/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,38 @@ const store = createStore();
 const utapi = process.env.UPLOADTHING_TOKEN ? new UTApi({ token: process.env.UPLOADTHING_TOKEN }) : null;
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '8mb' }));
+app.disable('x-powered-by');
+const PROD = !!process.env.MONGODB_URI;
+if (PROD && SECRET === 'dosti-khata-dev-secret') console.error('KHATRA: APP_SECRET set nahi! Render par APP_SECRET lagao.');
+
+// Hifazati headers: page kisi aur site mein chhup kar na khule, sirf apni files chalein, waghera
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Permissions-Policy': 'camera=(), geolocation=(), payment=(), usb=(), microphone=(self)',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Content-Security-Policy': [
+      "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "font-src 'self' data:",
+      "img-src 'self' data: blob: https://utfs.io https://*.ufs.sh", "connect-src 'self'", "worker-src 'self' blob:",
+      "manifest-src 'self'", "media-src 'self' blob:", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'",
+    ].join('; '),
+  });
+  if (PROD) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+// Har IP ki had: ek minute mein 600 se zyada API calls nahi (koi hamla kare to server na baithe)
+const hits = new Map();
+setInterval(() => hits.clear(), 60e3).unref();
+app.use('/api', (req, res, next) => {
+  const n = (hits.get(req.ip) || 0) + 1; hits.set(req.ip, n);
+  if (n > 600) return res.status(429).json({ error: 'Bohat zyada requests. Ek minute baad.' });
+  next();
+});
+// Bari body sirf entries (screenshot) ke liye; baqi sab chhoti
+app.use(['/api/entries', '/api/ai'], express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '200kb' }));
 if (process.env.DEBUG_REQ) app.use('/api/entries', (req, _res, next) => { console.log(new Date().toISOString().slice(11, 23), req.method, req.url, req.body?.amount ?? ''); next(); });
 
 /* ---------------- accounts ---------------- */
@@ -48,23 +80,36 @@ async function loadUsers() {
   }
 }
 
-// Token PIN se juda hai: PIN badlo to purane sab login khud band.
-const sign = (u) => crypto.createHmac('sha256', SECRET).update(`${u._id}:${u.pinHash}`).digest('hex');
-const tokenFor = (u) => `${u._id}.${sign(u)}`;
+// Token PIN se juda hai: PIN badlo to purane sab login khud band. Har token 180 din chalta hai (app khud naya leti rehti hai).
+const TOKEN_DAYS = 180;
+const sign = (u, exp) => crypto.createHmac('sha256', SECRET).update(exp ? `${u._id}:${u.pinHash}:${exp}` : `${u._id}:${u.pinHash}`).digest('hex');
+const tokenFor = (u) => { const exp = Math.floor(Date.now() / 1000) + TOKEN_DAYS * 86400; return `${u._id}.${exp}.${sign(u, exp)}`; };
+const LEGACY_UNTIL = Date.parse('2027-02-01T00:00:00Z'); // purane (bina muddat) tokens sirf tab tak, app inhein khud badal deti hai
+const safeEq = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 function userFromToken(tok) {
-  const [id, sig] = String(tok || '').split('.');
-  const u = users.get(id);
-  if (!u || !sig) return null;
-  const good = sign(u);
-  return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good)) ? u : null;
+  const parts = String(tok || '').split('.');
+  const u = users.get(parts[0]);
+  if (!u) return null;
+  if (parts.length === 3) {
+    const exp = Number(parts[1]);
+    if (!(exp > Date.now() / 1000)) return null;
+    return safeEq(parts[2], sign(u, parts[1])) ? u : null;
+  }
+  if (parts.length === 2 && Date.now() < LEGACY_UNTIL) return safeEq(parts[1], sign(u)) ? u : null;
+  return null;
 }
+const tokenExp = (tok) => { const p = String(tok || '').split('.'); return p.length === 3 ? Number(p[1]) : 0; };
 const pinOk = (u, pin) => {
   const a = Buffer.from(hashPin(pin, u.pinSalt), 'hex');
   const b = Buffer.from(u.pinHash, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
-// Ghalat PIN ki had: 8 dafa ghalat to 10 minute ruko
+// Ghalat PIN ki had: ek phone/IP se 8 dafa ghalat to 10 minute ruko.
+// Aur poore account par (har jagah se mila kar) 20 dafa ghalat to 1 ghanta band, taake koi bohat se IPs se PIN na dhoonde.
+const acctFails = new Map();
+const acctLocked = (id) => { const t = acctFails.get(id); return t && Date.now() - t.at < 3600e3 && t.n >= 20; };
+const acctFail = (id) => { const t = acctFails.get(id); if (!t || Date.now() - t.at > 3600e3) acctFails.set(id, { n: 1, at: Date.now() }); else t.n++; };
 const tries = new Map();
 function limited(key) {
   const t = tries.get(key);
@@ -86,8 +131,9 @@ app.post('/api/login', (req, res) => {
   const key = `${req.ip}:${id}`;
   if (!u) return res.status(400).json({ error: 'Account chunein.' });
   if (limited(key)) return res.status(429).json({ error: 'Bohat dafa ghalat PIN. 10 minute baad koshish karein.' });
-  if (!pinOk(u, String(req.body?.pin || ''))) {
-    fail(key);
+  if (acctLocked(id)) return res.status(429).json({ error: 'Is account par bohat ghalat koshishein hui hain. 1 ghante baad koshish karein.' });
+  if (!pinOk(u, String(req.body?.pin || '').slice(0, 12))) {
+    fail(key); acctFail(id);
     return res.status(401).json({ error: 'PIN ghalat hai. Dobara likhein.' });
   }
   tries.delete(key);
@@ -147,31 +193,27 @@ async function runReminders(now, force) {
   return { at: t, done };
 }
 
-// Poora khata saaf (sirf owner ke secret se). Accounts, PIN aur notifications rehti hain.
-app.post('/api/admin/reset', async (req, res, next) => {
-  try {
-    if (req.get('x-admin-key') !== SECRET || SECRET === 'dosti-khata-dev-secret' && process.env.NODE_ENV === 'production') return res.status(403).json({ error: 'Ijazat nahi.' });
-    const rows = await store.entries.all();
-    for (const r of rows) { if (hasShot(r)) await dropShot(r); await store.entries.remove(String(r._id)); }
-    const acts = await store.activity.all();
-    for (const a of acts) await store.activity.remove(String(a._id));
-    broadcast('change', { action: 'reset', at: Date.now() });
-    res.json({ entries: rows.length, activity: acts.length });
-  } catch (e) { next(e); }
-});
+// (Pehle yahan "poora khata saaf" karne ka admin raasta tha. Security ke liye hata diya: data sirf app se mitta hai.)
 
 app.all('/api/cron/tick', async (req, res, next) => {
   try {
     // Test ke liye: sirf secret ke saath waqt badal sakte hain
-    const isTest = req.get('x-cron-key') === SECRET;
+    const isTest = !PROD && safeEq(req.get('x-cron-key') || '', SECRET); // waqt badalna sirf local test mein
     const now = isTest && req.query.now ? new Date(req.query.now) : new Date();
     res.json(await runReminders(now, isTest ? req.query.force : undefined));
   } catch (e) { next(e); }
 });
 
+// Business payout (bahar ke software se, sirf secret key ke saath)
+hookRoutes(app, store, { users: IDS, onMine: (me) => broadcast('mine', { at: Date.now() }, me), notify: (...a) => push.notify(...a) });
+
 // Is ke baad har cheez ke liye login zaroori
 app.use('/api', (req, res, next) => {
-  const u = userFromToken(req.get('x-khata-token') || req.query.t);
+  let u = userFromToken(req.get('x-khata-token') || (req.path.startsWith('/files/') ? req.query.t : ''));
+  if (!u && req.path === '/stream' && req.query.s) { // stream ticket
+    const [id, exp, sig] = String(req.query.s).split('.');
+    if (users.get(id) && Number(exp) > Date.now() / 1000 && safeEq(sig, ticketSig(id, exp))) u = users.get(id);
+  }
   if (!u) return res.status(401).json({ error: 'Dobara login karein.' });
   req.me = u._id;
   next();
@@ -183,11 +225,17 @@ function broadcast(event, data, onlyUser) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const s of streams) if (!onlyUser || s.me === onlyUser) s.res.write(msg);
 }
+// Live stream ka ticket: 10 minute ka, sirf stream ke liye (asal login token URL / logs mein na jaye)
+const ticketSig = (id, exp) => crypto.createHmac('sha256', SECRET).update(`stream:${id}:${users.get(id)?.pinHash}:${exp}`).digest('hex');
+app.post('/api/stream/ticket', (req, res) => { const exp = Math.floor(Date.now() / 1000) + 600; res.json({ ticket: `${req.me}.${exp}.${ticketSig(req.me, exp)}` }); });
 app.get('/api/stream', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   res.write(`retry: 3000\nevent: hello\ndata: {}\n\n`);
   const entry = { res, me: req.me };
+  // Ek bande ke zyada se zyada 8 khule connection (purana band)
+  const mineS = [...streams].filter((s) => s.me === req.me);
+  if (mineS.length >= 8) { mineS[0].res.end(); streams.delete(mineS[0]); }
   streams.add(entry);
   const ping = setInterval(() => res.write(': ping\n\n'), 20000);
   req.on('close', () => { clearInterval(ping); streams.delete(entry); });
@@ -195,6 +243,7 @@ app.get('/api/stream', (req, res) => {
 
 /* ---------------- Mera Hisaab (sirf apna) ---------------- */
 // Doosre bande ko is ki khabar nahi jati; sirf apne doosre phone ko "change" (taake wahan bhi update ho)
+hookAdminRoutes(app, store); // /api/me/hook pehle, warna /api/me/:col use pakad leta hai
 personalRoutes(app, store, (me) => broadcast('mine', { at: Date.now() }, me));
 
 /* ---------------- AI: bol kar / likh kar entry ---------------- */
@@ -222,7 +271,7 @@ app.post('/api/push/subscribe', async (req, res, next) => {
   catch (e) { next(e); }
 });
 app.post('/api/push/unsubscribe', async (req, res, next) => {
-  try { await push.unsubscribe(String(req.body?.endpoint || '')); res.json({ ok: true }); } catch (e) { next(e); }
+  try { await push.unsubscribe(String(req.body?.endpoint || ''), req.me); res.json({ ok: true }); } catch (e) { next(e); }
 });
 app.post('/api/push/test', async (req, res, next) => {
   try {
@@ -277,16 +326,28 @@ function changeText(changes, to) {
 async function changed(action, before, after, me) {
   let act = null;
   try { act = await logActivity(action, before, after, me); } catch (e) { console.error('Activity:', e.message); }
-  broadcast('change', { action, by: me, at: Date.now() }); // log ke baad, taake app ko poori cheez mile
+  const row = after || before;
+  const privateOnly = row?.type === 'expense' && !shareOf(snapshot(before), IDS) && !shareOf(snapshot(after), IDS);
+  broadcast('change', { action, by: me, at: Date.now() }, privateOnly ? me : undefined); // log ke baad; "sirf apna" kharcha sirf apne phones ko
   if (action !== 'update' || act) await tellOther(after || before, action, me, act);
 }
 
+// Purana ho raha token naya karo (app khud karti hai)
+app.post('/api/token', (req, res) => {
+  const u = users.get(req.me);
+  const tok = req.get('x-khata-token') || '';
+  const left = tokenExp(tok) - Date.now() / 1000;
+  res.json({ token: left > 60 * 86400 ? tok : tokenFor(u) });
+});
 app.post('/api/pin', async (req, res, next) => {
   try {
     const u = users.get(req.me);
     const { oldPin, newPin } = req.body || {};
-    if (!pinOk(u, String(oldPin || ''))) return res.status(400).json({ error: 'Purana PIN ghalat hai.' });
-    if (!/^\d{4}$/.test(String(newPin || ''))) return res.status(400).json({ error: 'Naya PIN 4 hindson ka ho.' });
+    const key = 'pin:' + req.me;
+    if (limited(key)) return res.status(429).json({ error: 'Bohat dafa ghalat. 10 minute baad.' });
+    if (!pinOk(u, String(oldPin || '').slice(0, 12))) { fail(key); return res.status(400).json({ error: 'Purana PIN ghalat hai.' }); }
+    if (!/^\d{4,8}$/.test(String(newPin || ''))) return res.status(400).json({ error: 'Naya PIN 4 se 8 hindson ka ho (6 behtar hai).' });
+    if (/^(\d)\1+$/.test(String(newPin)) || '0123456789'.includes(String(newPin)) || '9876543210'.includes(String(newPin))) return res.status(400).json({ error: 'Itna aasaan PIN nahi (1111, 1234). Koi aur rakho.' });
     const salt = crypto.randomBytes(16).toString('hex');
     const updated = await store.users.update(u._id, { pinSalt: salt, pinHash: hashPin(newPin, salt) });
     users.set(u._id, updated);
@@ -301,9 +362,9 @@ const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 function clean(body, who) {
   const type = ['payment', 'loan'].includes(body.type) ? body.type : 'expense';
   const amount = round(body.amount);
-  if (!(amount > 0)) throw new Error('Raqam sahi likhein.');
+  if (!(amount > 0) || amount > 1e9) throw new Error('Raqam sahi likhein.');
   const date = isDay(body.date) ? body.date : new Date().toISOString().slice(0, 10);
-  const note = String(body.note || '').slice(0, 120).trim();
+  const note = String(body.note || '').replace(/[<>]/g, '').slice(0, 120).trim();
   const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.time || '')) ? body.time : undefined;
   const base = { type, amount, date, time, note };
 
@@ -329,7 +390,8 @@ function clean(body, who) {
   // Jama ke hisse (50+30+20) sirf tab jab un ka jama asal raqam ke barabar ho
   const parts = Array.isArray(body.parts) && body.parts.length > 1 && body.parts.length <= 20 && body.parts.every((n) => Number(n) > 0)
     && Math.abs(body.parts.reduce((a, b) => a + Number(b), 0) - amount) < 0.01 ? body.parts.map((n) => round(n)) : null;
-  return { ...base, parts, category: String(body.category || 'other').slice(0, 20), paidBy: body.paidBy, split, shares, updatedBy: who };
+  const CATS = ['khana', 'chai', 'sauda', 'program', 'petrol', 'kiraya', 'ghar', 'bill', 'salon', 'kapray', 'dawai', 'ticket', 'other'];
+  return { ...base, parts, category: CATS.includes(body.category) ? body.category : 'other', paidBy: body.paidBy, split, shares, updatedBy: who };
 }
 
 // Screenshot: UploadThing par (token ho to), warna database mein
@@ -342,7 +404,7 @@ async function saveShot(dataUrl, who) {
     const ext = m[1].split('/')[1].replace('jpeg', 'jpg');
     const name = `khata-${who}-${Date.now()}.${ext}`;
     const r = await utapi.uploadFiles(new UTFile([data], name, { type: m[1] }));
-    if (r.error || !r.data) throw new Error('Screenshot upload nahi hua, dobara koshish karein.');
+    if (r.error || !r.data) throw Object.assign(new Error('Screenshot upload nahi hua, thori der baad khud dobara.'), { status: 503 });
     return { fileUrl: r.data.ufsUrl || r.data.url, fileKey: r.data.key, fileId: null };
   }
   const f = await store.files.create({ mime: m[1], size: data.length, data, by: who });
@@ -357,24 +419,31 @@ async function dropShot(row) {
 const hasShot = (row) => !!(row.fileId || row.fileKey);
 
 // Kachi entries: hisaab app khud (phone par) banati hai, taake offline bhi chale
+// Har bande ko sirf woh jo us ka haq hai: doosre ka "sirf apna" kharcha bilkul nahi,
+// aur jo kharcha doosre ne diya us ka poora bill nahi, sirf mera hissa.
+function viewFor(row, me) {
+  if (!row || row.type !== 'expense' || row.paidBy === me || row.createdBy === me) return row;
+  const mine = Number(row.shares?.[me] || 0);
+  if (!(mine > 0)) return null;
+  const out = { ...row, amount: mine, shares: { [me]: mine, [row.paidBy]: 0 }, split: 'full' };
+  delete out.parts; delete out.owed; delete out.people;
+  return out;
+}
+function actFor(a, me) {
+  const by = a.after || a.before;
+  if (!by || by.type !== 'expense' || a.by === me) return a;
+  const before = viewFor(a.before, me), after = viewFor(a.after, me);
+  if (!before && !after) return null;
+  return { ...a, before, after, changes: (a.changes || []).filter((c) => !['amount', 'split', 'parts'].includes(c.f)) };
+}
 app.get('/api/entries', async (req, res, next) => {
   try {
     const [rows, all] = await Promise.all([store.entries.all(), store.activity.recent(300)]);
-    // Doosre ke apne (sirf us ke) kharchon ki activity na bhejo
-    const activity = all.filter((a) => a.by === req.me || shareOf(a.before, IDS) > 0 || shareOf(a.after, IDS) > 0);
-    res.json({ me: req.me, people: publicPeople(), rows, activity, at: Date.now() });
+    const mine = rows.map((r) => viewFor(r, req.me)).filter(Boolean);
+    const activity = all.filter((a) => a.by === req.me || shareOf(a.before, IDS) > 0 || shareOf(a.after, IDS) > 0).map((a) => actFor(a, req.me)).filter(Boolean);
+    res.set('Cache-Control', 'no-store').json({ me: req.me, people: publicPeople(), rows: mine, activity, at: Date.now() });
   }
   catch (e) { next(e); }
-});
-
-app.get('/api/ledger', async (req, res, next) => {
-  try {
-    const rows = await store.entries.all();
-    const ledger = computeLedger(rows, IDS);
-    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date().toISOString().slice(0, 7);
-    const months = [...new Set(rows.map((r) => String(r.date).slice(0, 7)))].sort().reverse();
-    res.json({ me: req.me, people: publicPeople(), ...ledger, stats: monthStats(rows, IDS, month), months });
-  } catch (e) { next(e); }
 });
 
 app.post('/api/entries', async (req, res, next) => {
@@ -387,7 +456,7 @@ app.post('/api/entries', async (req, res, next) => {
       if (dup) {
         // Pehle wali koshish server tak pohanch gayi thi (jawab raste mein kho gaya).
         // Ab jo naya data aaya hai woh "tabdeeli" ke taur par lagao, taake kuch na khoye.
-        if (dup.createdBy && dup.createdBy !== req.me) return res.status(200).json(dup);
+        if (dup.createdBy && dup.createdBy !== req.me) return res.status(409).json({ error: 'Dobara koshish karein.' });
         const updated = await store.entries.update(String(dup._id), keepConfirm(dup, data));
         res.status(200).json(updated);
         changed('update', dup, updated, req.me);
@@ -396,7 +465,7 @@ app.post('/api/entries', async (req, res, next) => {
     }
     if (data.type !== 'expense' && req.body.screenshot) Object.assign(data, await saveShot(req.body.screenshot, req.me));
     const row = await store.entries.create({ ...data, clientId, createdBy: req.me });
-    res.status(201).json(row);
+    res.status(201).json(viewFor(row, req.me));
     changed('create', null, row, req.me);
   } catch (e) { e.status = e.status || 400; next(e); }
 });
@@ -441,7 +510,7 @@ app.put('/api/entries/:id', async (req, res, next) => {
       Object.assign(data, { fileId: null, fileUrl: null, fileKey: null });
     }
     const updated = await store.entries.update(String(row._id), data);
-    res.json(updated);
+    res.json(viewFor(updated, req.me));
     changed('update', row, updated, req.me);
   } catch (e) { e.status = e.status || 400; next(e); }
 });
@@ -476,10 +545,12 @@ app.delete('/api/entries/:id', async (req, res, next) => {
 
 app.get('/api/files/:id', async (req, res, next) => {
   try {
+    if (!/^[\w-]{1,64}$/.test(req.params.id)) return res.status(404).end();
     const f = await store.files.get(req.params.id);
     if (!f) return res.status(404).end();
+    if (!(await store.entries.find({ fileId: req.params.id }))) return res.status(404).end();
     const buf = Buffer.isBuffer(f.data) ? f.data : f.data?.buffer ? Buffer.from(f.data.buffer) : Buffer.from(String(f.data), 'base64');
-    res.set('Content-Type', f.mime).set('Cache-Control', 'private, max-age=31536000, immutable').send(buf);
+    res.set('Content-Type', /^image\/(jpeg|png|webp)$/.test(f.mime) ? f.mime : 'application/octet-stream').set('Cache-Control', 'private, max-age=31536000, immutable').send(buf);
   } catch (e) { next(e); }
 });
 
@@ -493,8 +564,10 @@ app.use('/assets', express.static(path.join(dist, 'assets'), { maxAge: '365d', i
 app.use(express.static(dist, { index: false, maxAge: '1h' }));
 app.get(/^(?!\/api).*/, (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(dist, 'index.html')));
 
-app.use((err, _req, res, _next) => {
-  res.status(err.status || 500).json({ error: err.message || 'Kuch ghalat ho gaya.' });
+app.use((err, req, res, _next) => {
+  const status = err.type === 'entity.too.large' ? 413 : err.type === 'entity.parse.failed' ? 400 : err.status || 500;
+  if (status >= 500) console.error('Server ghalti:', req.method, req.path, err.message);
+  res.status(status).json({ error: status >= 500 ? 'Server mein masla hua, thori der baad koshish karein.' : status === 413 ? 'Bohat bari cheez bheji.' : err.message || 'Ghalat request.' });
 });
 
 store.ready

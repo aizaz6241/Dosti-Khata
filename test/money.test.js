@@ -118,12 +118,13 @@ test('rate: khud likha / live', () => {
   assert.deepEqual(effectiveRates({ rates: { USDT: 280 } }, {}), { USDT: 280 });
 });
 
-test('binance: upar wala rate, ajeeb ho to beech wala', async () => {
-  const fake = (prices) => async () => ({ ok: true, json: async () => ({ data: prices.map((p) => ({ adv: { price: String(p) } })) }) });
-  assert.equal(await binanceSell(fake([281.5, 281.2, 281, 280.9, 280.5])), 281.5);
-  assert.equal(await binanceSell(fake([320, 281.2, 281, 280.9, 280.5])), 281);
-  const fake2 = (ads) => async () => ({ ok: true, json: async () => ({ data: ads.map(([p, m]) => ({ adv: { price: String(p), minSingleTransAmount: String(m) } })) }) });
-  assert.equal(await binanceSell(fake2([[298.38, 190000], [298.38, 250000], [293.3, 350], [292.8, 5000], [292.72, 350], [292.6, 1000]])), 293.3);
+test('binance: bharosemand bechne walon ka aam rate', async () => {
+  const fake = (ads) => async () => ({ ok: true, json: async () => ({ data: ads.map(([p, m, o]) => ({ adv: { price: String(p), minSingleTransAmount: String(m), isTradable: true }, advertiser: { monthOrderCount: o } })) }) });
+  // asal Binance jaisa: upar 298.4 wale naye / bare sauday wale
+  const live = [[298.4, 190000, 2], [298.4, 250000, 1], [298.4, 50000, 13], [298.4, 280000, 24], [293.5, 60000, 14], [293.35, 350, 936], [293.3, 350, 105], [292.8, 10000, 191], [292.7, 10000, 71], [292.61, 405, 897], [292.6, 350, 475], [292.6, 350, 209], [292.6, 1000, 41], [292.31, 350, 710]];
+  const v = await binanceSell(fake(live));
+  assert.ok(v >= 292 && v <= 293, 'aam rate ~292.6, 298 nahi: ' + v);
+  assert.equal(await binanceSell(fake([[300, 100, 1], [299, 100, 2]])), 299.5); // bharosemand na hon to sab ka beech
   const r = createRates({ fetchFn: async (url) => { if (String(url).includes('binance')) throw new Error('blocked'); if (String(url).includes('coingecko')) return { ok: true, json: async () => ({ tether: { pkr: 280.4 } }) }; return { ok: true, json: async () => ({ rates: { USD: 1 / 279, AED: 1 / 76 } }) }; }, log: {} });
   const g = await r.get();
   assert.equal(g.rates.USDT, 280.4); assert.equal(g.sources.USDT, 'CoinGecko'); assert.equal(g.rates.USD, 279);
@@ -141,4 +142,10 @@ test('muddat ka hisaab: hafta + pichla hafta', () => {
   assert.equal(r.days, 7); assert.equal(r.spent, 450); assert.equal(r.khata, 50); assert.equal(r.income, 1000);
   assert.equal(r.prev.from, '2026-11-16'); assert.equal(r.prev.spent, 200); assert.equal(r.change, 125);
   assert.equal(r.top[0].pkr, 300); assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+});
+
+test('mahina ka muqabla pichle asal mahine se (1 tareekh wala kiraya bhi)', () => {
+  const tx = [{ type: 'expense', amount: 15000, accountId: 'c', date: '2026-03-01', category: 'ghar' }, { type: 'expense', amount: 20000, accountId: 'c', date: '2026-04-01', category: 'ghar' }];
+  const r = rangeReport(tx, [{ clientId: 'c' }], '2026-04-01', '2026-04-30', {}, [], { from: '2026-03-01', to: '2026-03-31' });
+  assert.equal(r.prev.spent, 15000); assert.equal(r.change, 33);
 });

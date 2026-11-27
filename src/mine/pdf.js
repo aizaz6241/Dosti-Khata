@@ -3,6 +3,8 @@ import { idOf, monthReport, toPKR } from '../../server/money.js';
 import { catMeta, catInfo, kindMeta, TYPES } from './meta';
 import { catOf, view, visible } from '../lib';
 
+// PDF ka font Urdu / emoji nahi dikha sakta: un ko hata do taake kachra na chhape
+const L = (v) => String(v ?? '').replace(/[\u2212\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/[^\x00-\xFF]/g, '').trim();
 const fmt = (n, cur = 'PKR') => {
   const s = (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
   return cur === 'PKR' ? `Rs ${s}` : `${s} ${cur}`;
@@ -25,12 +27,12 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
   const head = (t) => {
     y = (doc.lastAutoTable?.finalY || y) + 26;
     if (y > 760) { doc.addPage(); y = 50; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...pine); doc.text(t, 40, y);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...pine); doc.text(L(t), 40, y);
     y += 8;
   };
   const table = (headRow, body, opts = {}) => {
     autoTable(doc, {
-      startY: y + 4, head: [headRow], body, margin: { left: 40, right: 40 },
+      startY: y + 4, head: [headRow.map(L)], body: body.map((r) => r.map(L)), margin: { left: 40, right: 40 },
       styles: { font: 'helvetica', fontSize: 9, cellPadding: 4, textColor: [23, 33, 29] },
       headStyles: { fillColor: pine, textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [238, 242, 238] }, ...opts,
@@ -41,11 +43,12 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
   doc.setFillColor(...pine); doc.rect(0, 0, W, 86, 'F');
   doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.text('Dosti Khata: Mera Hisaab', 40, 42);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-  doc.text(`${name}  |  ${range ? `Muddat: ${range.label} (${range.from} se ${range.to})  |  ` : ''}Bana: ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`, 40, 64);
+  doc.text(L(`${name}  |  ${range ? `Muddat: ${range.label} (${range.from} se ${range.to})  |  ` : ''}Bana: ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`), 40, 64);
   y = 110;
   doc.setTextColor(23, 33, 29); doc.setFontSize(11);
-  const owe = Object.values(people).reduce((a, p) => a + Math.max(0, p.balance.PKR || 0), 0);
-  const owed = Object.values(people).reduce((a, p) => a + Math.max(0, -(p.balance.PKR || 0)), 0);
+  const netOf = (p) => Object.entries(p.balance).reduce((a, [c, v]) => a + (toPKR(v, c, rates) ?? 0), 0);
+  const owe = Object.values(people).reduce((a, p) => a + Math.max(0, netOf(p)), 0);
+  const owed = Object.values(people).reduce((a, p) => a + Math.max(0, -netOf(p)), 0);
   doc.setFont('helvetica', 'bold'); doc.text(`Kul paisa (sab accounts): ${fmt(worth.pkr)}`, 40, y);
   doc.setFont('helvetica', 'normal');
   doc.text(`Logon par mere: ${fmt(owe)}    Mujh par logon ke: ${fmt(owed)}`, 40, y + 16);
@@ -98,7 +101,7 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
     const a = acc(t.accountId); const cur = a?.currency || 'PKR';
     const who = mine.contacts.find((c) => idOf(c) === t.contactId)?.name;
     const where = t.type === 'transfer' ? `${a?.name || '?'} > ${acc(t.toAccountId)?.name || '?'}` : [a?.name, who].filter(Boolean).join(', ');
-    const sign = t.type === 'transfer' ? '' : (TYPES[t.type]?.sign || Math.sign(t.amount)) > 0 ? '+' : '-';
+    const sign = t.type === 'transfer' ? '' : (t.type === 'adjust' ? Math.sign(t.amount) : TYPES[t.type]?.sign || Math.sign(t.amount)) > 0 ? '+' : '-';
     const kind = t.type === 'expense' || t.type === 'income' ? catMeta(t).label : t.synthetic ? `${other} khata` : TYPES[t.type].label;
     return [`${t.date} ${t.time || ''}`, kind, where, `${sign}${fmt(Math.abs(t.amount), cur)}`, t.note || ''];
   }) : [['Abhi koi len-den nahi', '', '', '', '']], { columnStyles: { 3: { halign: 'right' } } });
@@ -130,3 +133,6 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   return 'downloaded';
 }
+
+// Bhari libraries pehle se mangwa lo (offline PDF ke liye)
+export const warm = () => Promise.all([import('jspdf'), import('jspdf-autotable')]).catch(() => {});

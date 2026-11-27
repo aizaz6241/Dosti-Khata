@@ -2,7 +2,7 @@
 // - Server ki entries phone par save (localStorage)
 // - Har nayi entry/tabdeeli pehle phone ki "line" (queue, IndexedDB) mein, phir net ho to server par
 // - Net wapas aaye, app khule, ya doosra banda kuch likhe (real-time) to sab khud sync
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { api, LS } from './lib';
 
@@ -69,8 +69,12 @@ export function applyMine(mine, queue, me) {
   return out;
 }
 
-// Line mein naya kaam jodo, purane kaam ke saath mila kar
+// Line mein naya kaam jodo, purane kaam ke saath mila kar (sirf usi bande ke kaam se)
 function mergeOp(queue, op) {
+  const others = queue.filter((o) => o.by && op.by && o.by !== op.by);
+  return [...others, ...mergeOwn(queue.filter((o) => !others.includes(o)), op)];
+}
+function mergeOwn(queue, op) {
   const q = [...queue];
   const idx = (kind) => q.findIndex((o) => o.key === op.key && o.kind === kind);
   if (op.col === 'prefs') return [...q.filter((o) => o.col !== 'prefs'), op];
@@ -98,6 +102,12 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
   const [rows, setRows] = useState(() => LS.get(ROWS, null));
   const [activity, setActivity] = useState(() => LS.get('khata.activity', []));
   const [mine, setMine] = useState(() => LS.get('khata.mine', EMPTY_MINE));
+  const meRef = useRef(me);
+  useEffect(() => { // log out / doosra banda: pichle bande ka hisaab memory mein bhi na rahe
+    if (meRef.current === me) return;
+    meRef.current = me;
+    setRows(LS.get(ROWS, null)); setActivity(LS.get('khata.activity', [])); setMine(LS.get('khata.mine', EMPTY_MINE));
+  }, [me]);
   const [queue, setQueue] = useState([]);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [live, setLive] = useState(false);
@@ -120,7 +130,9 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
   const cb = useRef({ onError, onUnauthorized, onRemote, me });
   cb.current = { onError, onUnauthorized, onRemote, me };
 
+  const qVer = useRef(0); // line chhoti hone ka number (kuch server tak pohancha)
   const saveQueue = useCallback(async (q) => {
+    if (q.length < qRef.current.length) qVer.current++; // kuch server tak pohanch gaya
     qRef.current = q;
     setQueue(q);
     try { await idbSet(QUEUE, q); } catch { LS.set(QUEUE, q); }
@@ -128,18 +140,22 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
 
   const pull = useCallback(async () => {
     if (!LS.get('khata.token')) return;
+    const v0 = qVer.current;
     try {
       const r = await api('/entries');
+      if (qVer.current !== v0) return; // beech mein kuch server ko gaya: purana jawab chhodo, flush naya layega
       setRows(r.rows);
       LS.set(ROWS, r.rows);
       setActivity(r.activity || []);
       LS.set('khata.activity', r.activity || []);
       setOnline(true);
       const m = await api('/me/data').catch(() => null);
-      if (m) { setMine(m); LS.set('khata.mine', m); }
+      if (m && qVer.current === v0) { setMine(m); LS.set('khata.mine', m); }
+      return !!m;
     } catch (e) {
       if (e.status === 401) cb.current.onUnauthorized?.();
       else if (!e.status) setOnline(false);
+      return false;
     }
   }, []);
 
@@ -150,8 +166,10 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
     flushing.current = true;
     setSyncing(true);
     try {
-      while (qRef.current.length) {
-        const op = qRef.current[0];
+      // Sirf isi login wale bande ka kaam bhejo (phone par doosra banda login ho to us ka kaam us ke naam na chala jaye)
+      const own = () => qRef.current.find((o) => !o.by || o.by === cb.current.me);
+      while (own()) {
+        const op = own();
         inflight.current = op;
         try {
           if (op.col && op.col !== 'entries') {
@@ -187,7 +205,7 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
 
   const enqueue = useCallback(async (op) => {
     await ready.current;
-    const full = { ...op, id: newId(), rev: 0, at: Date.now() };
+    const full = { ...op, id: newId(), rev: 0, at: Date.now(), by: cb.current.me };
     let next = mergeOp(qRef.current, full);
     // Jo entry abhi server ko ja rahi hai, us ka delete line mein zaroor rahe
     const fly = inflight.current;
@@ -210,7 +228,7 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
     window.addEventListener('offline', off);
     document.addEventListener('visibilitychange', vis);
     navigator.serviceWorker?.addEventListener('message', msg);
-    const t = setInterval(() => (qRef.current.length ? flush() : pull()), 45000);
+    const t = setInterval(() => (qRef.current.some((o) => !o.by || o.by === cb.current.me) ? flush() : pull()), 45000);
     return () => {
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
@@ -223,9 +241,12 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
   // Real-time: server jab bhi kuch badle, foran naya data
   useEffect(() => {
     if (!token || typeof EventSource === 'undefined') return;
-    let es, retry;
-    const open = () => {
-      es = new EventSource('/api/stream?t=' + encodeURIComponent(token));
+    let es, retry, dead = false;
+    const open = async () => {
+      let ticket;
+      try { ticket = (await api('/stream/ticket', { method: 'POST' })).ticket; } catch { clearTimeout(retry); retry = setTimeout(open, 8000); return; }
+      if (dead) return;
+      es = new EventSource('/api/stream?s=' + encodeURIComponent(ticket));
       es.addEventListener('hello', () => { setLive(true); setOnline(true); flush(); });
       es.addEventListener('mine', () => pull());
       es.addEventListener('change', (ev) => {
@@ -234,12 +255,14 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
       });
       es.onerror = () => {
         setLive(false);
-        if (es.readyState === EventSource.CLOSED) { clearTimeout(retry); retry = setTimeout(open, 5000); }
+        // Ticket purana ho gaya ya server so gaya: band karo aur naye ticket se dobara
+        es.close(); clearTimeout(retry); retry = setTimeout(open, 4000);
       };
     };
     open();
-    return () => { clearTimeout(retry); es?.close(); };
+    return () => { dead = true; clearTimeout(retry); es?.close(); };
   }, [token, pull, flush]);
 
-  return { rows, activity, mine, queue, online, live, syncing, enqueue, pull, flush };
+  const myQueue = useMemo(() => queue.filter((o) => !o.by || o.by === me), [queue, me]);
+  return { rows, activity, mine, queue: myQueue, online, live, syncing, enqueue, pull, flush };
 }

@@ -117,11 +117,13 @@ export function monthReport(txns, accounts, monthKey, rates = {}, shared = []) {
   const before = sum(prevMonth(monthKey));
   const [y, mo] = monthKey.split('-').map(Number);
   const daysIn = new Date(y, mo, 0).getDate();
+  const tt = localToday();
+  const passedM = tt.slice(0, 7) === monthKey ? Number(tt.slice(8)) : daysIn;
   return {
     month: monthKey,
     ...now,
     saved: round(now.income - now.spent),
-    perDay: Math.round(now.spent / daysIn),
+    perDay: Math.round(now.spent / Math.max(1, passedM)),
     prev: { month: prevMonth(monthKey), spent: before.spent, income: before.income },
     change: before.spent > 0 ? round(((now.spent - before.spent) / before.spent) * 100) : null,
   };
@@ -185,7 +187,8 @@ export function effectiveRates(prefs = {}, live = {}) {
 export const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 export const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5) + 1;
 
-export function rangeReport(txns, accounts, from, to, rates = {}, shared = []) {
+const localToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+export function rangeReport(txns, accounts, from, to, rates = {}, shared = [], prevWin = null) {
   const cur = Object.fromEntries(accounts.map((a) => [idOf(a), a.currency || 'PKR']));
   const sum = (f, t) => {
     const r = { spent: 0, income: 0, khata: 0, byCat: {}, inCat: {}, byDay: {}, inDay: {}, count: 0, top: [], lent: 0, gotBack: 0, borrowed: 0, paidBack: 0 };
@@ -217,12 +220,14 @@ export function rangeReport(txns, accounts, from, to, rates = {}, shared = []) {
   };
   const days = daysBetween(from, to);
   const now = sum(from, to);
-  const pFrom = addDays(from, -days); const pTo = addDays(from, -1);
+  const pFrom = prevWin?.from || addDays(from, -days); const pTo = prevWin?.to || addDays(from, -1);
   const prev = sum(pFrom, pTo);
+  const t = localToday();
+  const passed = t >= from && t <= to ? daysBetween(from, t) : days; // abhi chal rahi muddat: sirf guzre din
   return {
-    from, to, days, ...now,
+    from, to, days, passed, ...now,
     saved: round(now.income - now.spent),
-    perDay: Math.round(now.spent / days),
+    perDay: Math.round(now.spent / Math.max(1, passed)),
     prev: { from: pFrom, to: pTo, spent: prev.spent, income: prev.income, byDay: prev.byDay },
     change: prev.spent > 0 ? Math.round(((now.spent - prev.spent) / prev.spent) * 100) : null,
   };

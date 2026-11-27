@@ -12,7 +12,7 @@ export default function AccountLink({ accounts, value, onChange, dir }) {
       <div className="chips" role="radiogroup">
         {list.map((a) => {
           const K = kindMeta(a.kind).icon;
-          return <button type="button" key={idOf(a)} role="radio" aria-checked={value === idOf(a)} className={'chip' + (value === idOf(a) ? ' on' : '')} onClick={() => onChange(value === idOf(a) ? '' : idOf(a))}><K size={14} /> {a.name}</button>;
+          return <button type="button" key={idOf(a)} role="radio" aria-checked={value === idOf(a)} className={'chip' + (value === idOf(a) ? ' on' : '')} onClick={() => onChange(idOf(a))}><K size={14} /> {a.name}</button>;
         })}
         <button type="button" role="radio" aria-checked={!value} className={'chip ghost' + (!value ? ' on' : '')} onClick={() => onChange('')}>Koi nahi</button>
       </div>

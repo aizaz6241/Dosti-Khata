@@ -346,6 +346,7 @@ export function PinForm({ onSave, busy }) {
     ev.preventDefault();
     setErr('');
     if (newPin.length !== 4) return setErr('Naya PIN 4 hindson ka ho.');
+    if (/^(\d)\1+$/.test(newPin) || '0123456789'.includes(newPin) || '9876543210'.includes(newPin)) return setErr('Itna aasaan PIN nahi (1111, 1234). Koi aur rakho.');
     if (newPin !== again) return setErr('Naya PIN dono dafa ek jaisa likho.');
     try { await onSave(oldPin, newPin); } catch (e) { setErr(e.message); }
   };

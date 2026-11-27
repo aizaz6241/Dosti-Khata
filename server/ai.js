@@ -105,7 +105,7 @@ export function numbersIn(text) {
 }
 
 // Lafzon wali raqam: "do sau", "dhai hazaar", "sarhe teen sau", "two hundred", "chaar hazar"
-const UNITS = { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, chaar: 4, four: 4, paanch: 5, panch: 5, five: 5, chhe: 6, che: 6, chay: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10, gyarah: 11, barah: 12, pandrah: 15, bees: 20, twenty: 20, pachees: 25, tees: 30, thirty: 30, chalees: 40, pachas: 50, pachaas: 50, fifty: 50, sattar: 70, assi: 80, nabbe: 90,
+const UNITS = { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, four: 4, paanch: 5, panch: 5, five: 5, chhe: 6, che: 6, chay: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10, gyarah: 11, barah: 12, pandrah: 15, bees: 20, twenty: 20, pachees: 25, tees: 30, thirty: 30, chalees: 40, pachas: 50, pachaas: 50, fifty: 50, sattar: 70, assi: 80, nabbe: 90,
   'ایک': 1, 'دو': 2, 'تین': 3, 'چار': 4, 'پانچ': 5, 'چھ': 6, 'سات': 7, 'آٹھ': 8, 'نو': 9, 'دس': 10, 'بیس': 20, 'پچاس': 50 };
 const FRACT = { sawa: 1.25, dedh: 1.5, dhai: 2.5, dhaai: 2.5, 'ڈیڑھ': 1.5, 'ڈھائی': 2.5, 'سوا': 1.25 };
 const MULT = { sau: 100, so: 100, hundred: 100, 'سو': 100, hazar: 1000, hazaar: 1000, hajar: 1000, thousand: 1000, 'ہزار': 1000 };

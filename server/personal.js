@@ -72,7 +72,11 @@ const COLS = {
       const customCats = (Array.isArray(b.customCats) ? b.customCats : []).slice(0, 60)
         .filter((c) => /^c_[a-z0-9]{3,24}$/.test(String(c?.id || '')) && str(c.label, 24))
         .map((c) => ({ id: c.id, label: str(c.label, 24), icon: /^[A-Za-z0-9]{2,20}$/.test(c.icon || '') ? c.icon : 'Tag', kind: c.kind === 'income' ? 'income' : 'expense' }));
-      return { rates, manual, budget, customCats };
+      const catBudgets = {};
+      for (const [k, v] of Object.entries(b.catBudgets || {}).slice(0, 80)) {
+        if ((EXPENSE_CATS.includes(k) || /^c_[a-z0-9]{3,24}$/.test(k)) && Number(v) > 0 && Number(v) < 1e10) catBudgets[k] = Math.round(Number(v));
+      }
+      return { rates, manual, budget, customCats, catBudgets };
     },
   },
   // Dosti khata ki entry kis account se gayi / mein aayi (sirf aap ko pata)
@@ -108,7 +112,9 @@ export function personalRoutes(app, store, onChange) {
       const data = COLS[col].clean(req.body || {});
       const clientId = /^[\w-]{8,64}$/.test(String(req.body?.clientId || '')) ? req.body.clientId : undefined;
       if (col === 'prefs') {
-        const old = (await store.prefs.all({ owner: req.me }))[0];
+        const all = await store.prefs.all({ owner: req.me });
+        const old = all[0];
+        for (const extra of all.slice(1)) await store.prefs.remove(String(extra._id)); // ghalti se do bane hon to ek rakho
         const row = old ? await store.prefs.update(String(old._id), data) : await store.prefs.create({ ...data, owner: req.me });
         onChange(req.me); return res.json(row);
       }

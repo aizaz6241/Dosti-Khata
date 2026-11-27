@@ -31,16 +31,20 @@ export async function setupPush(store) {
     return sent;
   }
 
+  // Sirf asli push services (Google/Apple/Mozilla/Microsoft) par bhejo, kisi aur URL par nahi
+  const PUSH_HOSTS = /^(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w.-]+\.push\.apple\.com|web\.push\.apple\.com|[\w.-]+\.notify\.windows\.com|[\w.-]+\.push\.services\.mozilla\.com)$/;
+  const okEndpoint = (e) => { try { const u = new URL(e); return u.protocol === 'https:' && (PUSH_HOSTS.test(u.hostname) || (process.env.PUSH_TEST_HOSTS || '').split(',').includes(u.host)); } catch { return false; } };
   async function subscribe(userId, sub, ua) {
-    if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) throw Object.assign(new Error('Subscription sahi nahi.'), { status: 400 });
+    if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth || !okEndpoint(sub.endpoint) || String(sub.endpoint).length > 800) throw Object.assign(new Error('Subscription sahi nahi.'), { status: 400 });
+    sub = { endpoint: String(sub.endpoint), keys: { p256dh: String(sub.keys.p256dh).slice(0, 200), auth: String(sub.keys.auth).slice(0, 100) } };
     const old = await store.subs.find({ endpoint: sub.endpoint });
     if (old) await store.subs.update(old._id, { user: userId, keys: sub.keys, ua });
     else await store.subs.create({ user: userId, endpoint: sub.endpoint, keys: sub.keys, ua });
   }
 
-  async function unsubscribe(endpoint) {
-    const old = await store.subs.find({ endpoint });
-    if (old) await store.subs.remove(old._id);
+  async function unsubscribe(endpoint, userId) {
+    const old = await store.subs.find({ endpoint: String(endpoint) });
+    if (old && old.user === userId) await store.subs.remove(old._id);
   }
 
   return { publicKey: pub, notify, subscribe, unsubscribe };

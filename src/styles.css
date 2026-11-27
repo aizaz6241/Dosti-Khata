@@ -935,3 +935,84 @@ body[data-mode="dosti"] .acc-opt.add { border-color: #A9CDBE; }
 .sheet .form { gap: 16px; }
 .type-tabs { background: #E2E5EE; }
 .type-tabs .tt.on { background: var(--pine-2); box-shadow: 0 6px 14px -8px var(--pine-2); }
+
+/* ======================= v14: budget tracker + chhoti categories ======================= */
+.btrack { background: var(--surface); border-radius: 24px; padding: 14px 16px 16px; margin-top: 16px; display: grid; gap: 14px;
+  box-shadow: 0 1px 2px rgba(20,30,60,.04), 0 10px 24px -18px rgba(20,30,60,.3); }
+.bt-head { display: flex; justify-content: space-between; align-items: center; }
+.bt-title { display: inline-flex; align-items: center; gap: 2px; font-family: var(--display); font-size: 18px; color: var(--ink); }
+.bt-title svg { color: var(--muted); }
+.bt-main { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+.ring { position: relative; flex: none; }
+.ring svg { display: block; }
+.ring-bg { fill: none; stroke: var(--paper); }
+.ring-fg { fill: none; stroke: #18A86B; }
+.ring-fg.warn { stroke: #E39B12; } .ring-fg.over { stroke: #E5484D; }
+.ring-in { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.ring-in b { font-family: var(--display); font-size: 26px; letter-spacing: -0.02em; line-height: 1; }
+.ring-in small { font-size: 11.5px; color: var(--muted); font-weight: 700; margin-top: 2px; }
+.bt-side { display: grid; gap: 1px; min-width: 0; }
+.bt-l { font-size: 12.5px; color: var(--muted); font-weight: 700; }
+.bt-big { font-family: var(--display); font-size: 26px; letter-spacing: -0.02em; line-height: 1.1; }
+.bt-of { font-size: 12.5px; color: var(--muted); }
+.bt-left { margin-top: 6px; font-weight: 800; font-size: 14.5px; color: #15925C; }
+.bt-left.warn { color: #B97A06; } .bt-left.over { color: #D93F3F; }
+.bt-day { font-size: 12.5px; color: var(--ink); font-weight: 600; background: var(--paper); justify-self: start; padding: 3px 9px; border-radius: 99px; margin-top: 4px; }
+.bt-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bt-stats div { display: grid; gap: 2px; background: var(--paper); border-radius: 14px; padding: 9px 10px; min-width: 0; }
+.bt-stats span { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.bt-stats b { font-family: var(--display); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-cta { display: flex; align-items: center; gap: 12px; text-align: left; padding: 12px; border-radius: 16px; border: 1.5px dashed #B7BEE6; color: var(--pine-2); }
+.bt-cta span { flex: 1; display: grid; gap: 2px; } .bt-cta b { color: var(--ink); font-size: 14.5px; } .bt-cta small { color: var(--muted); font-size: 12px; }
+.btrack .mm-note { margin-top: -4px; }
+
+.cbl { display: grid; gap: 10px; }
+.cbl-h { font-size: 13px; font-weight: 800; color: var(--muted); margin-top: 14px; margin-bottom: 8px; }
+.cbl-row { display: flex; gap: 10px; align-items: center; }
+.cbl-ic { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: #DDF5E9; color: #15925C; }
+.cbl-ic.warn { background: #FFF1D1; color: #B97A06; } .cbl-ic.over { background: #FDE7E5; color: #D93F3F; }
+.cbl-main { flex: 1; display: grid; gap: 4px; min-width: 0; }
+.cbl-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.cbl-top b { font-size: 14px; }
+.cbl-top small { font-size: 12px; font-weight: 700; color: #15925C; white-space: nowrap; }
+.cbl-top small.warn { color: #B97A06; } .cbl-top small.over { color: #D93F3F; }
+.cbl-sub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.b-bar.thin { height: 6px; }
+
+/* Budget form */
+.cb-list { display: grid; gap: 6px; }
+.cb-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border-radius: 14px; padding: 8px 8px 8px 10px; border: 1.5px solid transparent; }
+.cb-row.set { border-color: color-mix(in srgb, var(--pine-2) 35%, transparent); }
+.cb-ic { flex: none; width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: #F0F2F7; color: #4F5A70; }
+.cb-name { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.cb-name b { font-size: 13.5px; } .cb-name small { font-size: 11.5px; color: var(--muted); }
+.cb-in { flex: none; display: flex; align-items: center; gap: 4px; background: var(--paper); border-radius: 11px; padding: 0 10px; height: 40px; width: 112px; }
+.cb-in span { font-size: 12px; color: var(--muted); font-weight: 700; }
+.cb-in input { width: 100%; border: 0; background: transparent; font-weight: 800; font-size: 15px; outline: none; font-variant-numeric: tabular-nums; }
+.cb-more { justify-self: center; margin-top: 6px; }
+
+/* Categories: chhote, 5 khane */
+.cat-grid { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.cat-opt { gap: 4px; padding: 8px 2px 7px; border-radius: 14px; }
+.cat-opt .co-ic { width: 30px; height: 30px; border-radius: 10px; }
+.cat-opt .co-ic svg { width: 16px; height: 16px; }
+.cat-opt .co-l { font-size: 10.5px; font-weight: 700; }
+
+/* Refresh button (hero ke kone mein) */
+.hero-refresh { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; z-index: 2;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
+.hero-refresh.spin svg { animation: spin .8s linear infinite; }
+
+/* Backup / payout */
+.bk-top { display: flex; gap: 12px; align-items: center; background: var(--surface); border-radius: 18px; padding: 14px; color: #15925C; }
+.bk-top span { display: grid; gap: 3px; } .bk-top b { color: var(--ink); font-size: 14.5px; } .bk-top small { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.bk-every { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.bk-every button { height: 40px; border-radius: 12px; background: var(--surface); font-weight: 700; font-size: 13px; color: var(--muted); border: 1.5px solid transparent; }
+.bk-every button.on { color: var(--pine-2); border-color: var(--pine-2); background: color-mix(in srgb, var(--pine-2) 8%, #fff); }
+.bk-preview { background: var(--surface); border-radius: 18px; padding: 14px; display: grid; gap: 8px; }
+.bk-due { display: flex; align-items: center; gap: 10px; background: #DDF5E9; color: #15925C; border-radius: 18px; padding: 10px 8px 10px 14px; margin-bottom: 12px; }
+.bk-due span { flex: 1; display: grid; } .bk-due b { color: var(--ink); font-size: 14px; } .bk-due small { color: var(--muted); font-size: 12px; }
+.bk-due .icon-btn { font-size: 22px; color: var(--muted); }
+.payout .key-box, .payout .dev { display: grid; gap: 8px; }
+.code { display: block; background: #121A2E; color: #D7E0FF; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; border-radius: 12px; padding: 10px 12px; word-break: break-all; white-space: pre-wrap; user-select: all; }
+.more-grid { grid-template-columns: repeat(3, 1fr); }

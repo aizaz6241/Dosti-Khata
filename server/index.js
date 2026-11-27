@@ -115,10 +115,12 @@ function clean(body, who) {
   if (!(amount > 0)) throw new Error('Raqam sahi likhein.');
   const date = isDay(body.date) ? body.date : new Date().toISOString().slice(0, 10);
   const note = String(body.note || '').slice(0, 120).trim();
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.time || '')) ? body.time : undefined;
+  const base = { type, amount, date, time, note };
 
   if (type !== 'expense') {
     if (!IDS.includes(body.from)) throw new Error('Kis ne paise diye? chunein.');
-    return { type, amount, date, note, category: type, from: body.from, to: other(body.from, IDS), updatedBy: who };
+    return { ...base, category: type, from: body.from, to: other(body.from, IDS), updatedBy: who };
   }
 
   if (!IDS.includes(body.paidBy)) throw new Error('Kis ne pay kiya? chunein.');
@@ -135,7 +137,7 @@ function clean(body, who) {
     if (!(owed > 0) || owed > amount) throw new Error('Hissa 0 se zyada aur kul raqam se kam ho.');
   }
   const shares = { [debtor]: owed, [body.paidBy]: round(amount - owed) };
-  return { type, amount, date, note, category: String(body.category || 'other').slice(0, 20), paidBy: body.paidBy, split, shares, updatedBy: who };
+  return { ...base, category: String(body.category || 'other').slice(0, 20), paidBy: body.paidBy, split, shares, updatedBy: who };
 }
 
 // Screenshot: UploadThing par (token ho to), warna database mein

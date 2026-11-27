@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Trash2, ImagePlus, X } from 'lucide-react';
-import { CATEGORIES, compressImage, shotUrl, rs, today } from '../lib';
+import { CATEGORIES, compressImage, shotUrl, rs, today, nowTime } from '../lib';
 
 function AmountInput({ value, onChange, autoFocus, label }) {
   return (
@@ -53,11 +53,14 @@ function DeleteButton({ onDelete }) {
   );
 }
 
-function DateRow({ date, setDate }) {
+function DateRow({ date, setDate, time, setTime }) {
   return (
-    <div className="field row">
-      <span className="field-label">Tareekh</span>
-      <input type="date" className="date-field" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+    <div className="field">
+      <span className="field-label">Tareekh aur time</span>
+      <div className="when-row">
+        <input type="date" className="date-field" value={date} max={today()} onChange={(e) => setDate(e.target.value)} aria-label="Tareekh" />
+        <input type="time" className="date-field" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time" />
+      </div>
     </div>
   );
 }
@@ -72,6 +75,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
   const [split, setSplit] = useState(initSplit);
   const [custom, setCustom] = useState(initial && initSplit === 'custom' ? String(initial.calc?.owed ?? '') : '');
   const [date, setDate] = useState(initial?.date || today());
+  const [time, setTime] = useState(initial?.time || nowTime());
 
   const other = names[otherId];
   const debtor = paidBy === me ? otherId : me;
@@ -90,7 +94,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
   const submit = (ev) => {
     ev.preventDefault();
     if (amt <= 0 || (owed <= 0 && split !== 'self')) return;
-    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date });
+    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date, time });
   };
 
   return (
@@ -138,7 +142,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
         )}
       </div>
 
-      <DateRow date={date} setDate={setDate} />
+      <DateRow date={date} setDate={setDate} time={time} setTime={setTime} />
 
       <div className={'preview' + (amt > 0 && (owed > 0 || split === 'self') ? ' live' : '')}>
         <p>{preview}</p>
@@ -162,6 +166,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
   const [amount, setAmount] = useState(initial ? String(initial.amount) : prefillClear && balance.amount > 0 ? String(Math.round(balance.amount)) : '');
   const [note, setNote] = useState(initial?.note || '');
   const [date, setDate] = useState(initial?.date || today());
+  const [time, setTime] = useState(initial?.time || nowTime());
   const [shot, setShot] = useState(null); // naya screenshot (dataUrl)
   const [keepOld, setKeepOld] = useState(!!(initial && shotUrl(initial)));
   const [shotErr, setShotErr] = useState('');
@@ -197,7 +202,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
   const submit = (ev) => {
     ev.preventDefault();
     if (amt <= 0) return;
-    const body = { type: loan ? 'loan' : 'payment', amount: amt, from, note, date };
+    const body = { type: loan ? 'loan' : 'payment', amount: amt, from, note, date, time };
     if (shot) body.screenshot = shot;
     else if (initial && shotUrl(initial) && !keepOld) body.removeScreenshot = true;
     onSave(body);
@@ -246,7 +251,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
         {shotErr && <p className="err">{shotErr}</p>}
       </div>
 
-      <DateRow date={date} setDate={setDate} />
+      <DateRow date={date} setDate={setDate} time={time} setTime={setTime} />
 
       {after && <p className="preview live">{after}</p>}
       {!loan && <p className="hint">Purane kharche, sab se purana pehle, khud tick ho jayenge.</p>}

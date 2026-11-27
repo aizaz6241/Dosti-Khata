@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Check, Paperclip } from 'lucide-react';
-import { cap, catOf, num, rs, view } from '../lib';
+import { cap, catOf, num, rs, timeLabel, view } from '../lib';
 
 export function StatusPill({ e }) {
   const c = e.calc;
@@ -36,7 +36,7 @@ export default function EntryRow({ e, me, names, colors, onOpen, index = 0 }) {
       </span>
       <span className="entry-main">
         <span className="entry-title">{title}{(e.fileId || e.fileUrl) && <Paperclip size={13} className="clip" aria-label="Screenshot laga hai" />}</span>
-        <span className="entry-sub">{v.line}</span>
+        <span className="entry-sub"><span className="entry-time">{timeLabel(e)}</span>{v.line}</span>
       </span>
       <span className="entry-side">
         <span className={'entry-amt ' + (v.mine ? 'mine' : 'theirs')}>{num(v.amount)}</span>

@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 
-const ENTRY_FIELDS = ['type', 'amount', 'note', 'category', 'date', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey'];
+const ENTRY_FIELDS = ['type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey'];
 
 function mongoStore(uri) {
   const Entry = mongoose.models.Entry || mongoose.model('Entry', new mongoose.Schema(
@@ -15,6 +15,7 @@ function mongoStore(uri) {
       note: { type: String, default: '' },
       category: { type: String, default: 'other' },
       date: { type: String, required: true }, // YYYY-MM-DD
+      time: String, // HH:mm (Pakistan time)
       paidBy: String,
       shares: { type: Object, default: {} },
       split: String,

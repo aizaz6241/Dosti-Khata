@@ -315,3 +315,7 @@ h1, h2, h3, p { margin: 0; }
 .paid-legend.stack { flex-direction: column; gap: 6px; }
 .month-panel .paid-bar { margin-top: 14px; }
 .month-net { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; font-weight: 600; color: var(--pine); }
+
+.when-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; }
+.when-row .date-field { width: 100%; min-width: 0; }
+.entry-time { font-weight: 700; color: var(--ink); opacity: .7; margin-right: 6px; }

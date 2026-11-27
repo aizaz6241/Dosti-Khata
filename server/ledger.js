@@ -12,15 +12,16 @@ export function other(p, people) {
   return p === people[0] ? people[1] : people[0];
 }
 
+// Tarteeb: pehle tareekh, phir time, phir kab likha gaya
 function sortKey(e) {
-  return [new Date(e.date).getTime(), new Date(e.createdAt || e.date).getTime()];
+  return [`${e.date} ${e.time || ''}`, new Date(e.createdAt || e.date).getTime()];
 }
 
 export function computeLedger(entries, people) {
   const list = [...entries].sort((a, b) => {
     const [a1, a2] = sortKey(a);
     const [b1, b2] = sortKey(b);
-    return a1 - b1 || a2 - b2;
+    return a1 < b1 ? -1 : a1 > b1 ? 1 : a2 - b2;
   });
 
   const open = []; // { id, debtor, creditor, remaining }

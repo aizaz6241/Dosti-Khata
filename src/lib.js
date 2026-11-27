@@ -33,6 +33,17 @@ export const today = () => {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
 export const thisMonth = () => today().slice(0, 7);
+export const nowTime = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+// "15:45" -> "3:45 PM". Time na ho to likhne ka waqt (createdAt) use karo.
+export const timeLabel = (e) => {
+  let t = e.time;
+  if (!t && e.createdAt) { const d = new Date(e.createdAt); t = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; }
+  if (!t) return '';
+  let [h, m] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, '0')} ${ap}`;
+};
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SHORT = MONTHS.map((m) => m.slice(0, 3));

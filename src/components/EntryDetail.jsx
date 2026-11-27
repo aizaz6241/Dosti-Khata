@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Pencil, Lock } from 'lucide-react';
-import { cap, catOf, dayLabel, shotUrl, rs, view } from '../lib';
+import { cap, catOf, dayLabel, shotUrl, rs, timeLabel, view } from '../lib';
 import { StatusPill } from './EntryRow';
 
 export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen }) {
@@ -26,7 +26,7 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
         <div>
           <p className="detail-amt">{rs(v.amount)}</p>
           <p className="detail-title">{cap(e.note) || cat.label}</p>
-          <p className="detail-date">{dayLabel(e.date)}</p>
+          <p className="detail-date">{dayLabel(e.date)}, {timeLabel(e)}</p>
         </div>
       </div>
 
@@ -63,7 +63,7 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
             const how = isPay || isLoan ? '' : x?.type === 'payment' ? ', payment se' : x?.type === 'loan' ? ', qarz se adjust' : ', doosre kharche se adjust';
             return (
               <button key={l.id} className="link-row" onClick={() => x && onOpen(x)}>
-                <span>{linkTitle(x)}<small>{x ? `${dayLabel(x.date)}${how}` : ''}</small></span>
+                <span>{linkTitle(x)}<small>{x ? `${dayLabel(x.date)}, ${timeLabel(x)}${how}` : ''}</small></span>
                 <b>{rs(l.amount)}</b>
               </button>
             );

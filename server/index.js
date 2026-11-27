@@ -314,7 +314,10 @@ function clean(body, who) {
     if (!(owed > 0) || owed > amount) throw new Error('Hissa 0 se zyada aur kul raqam se kam ho.');
   }
   const shares = { [debtor]: owed, [body.paidBy]: round(amount - owed) };
-  return { ...base, category: String(body.category || 'other').slice(0, 20), paidBy: body.paidBy, split, shares, updatedBy: who };
+  // Jama ke hisse (50+30+20) sirf tab jab un ka jama asal raqam ke barabar ho
+  const parts = Array.isArray(body.parts) && body.parts.length > 1 && body.parts.length <= 20 && body.parts.every((n) => Number(n) > 0)
+    && Math.abs(body.parts.reduce((a, b) => a + Number(b), 0) - amount) < 0.01 ? body.parts.map((n) => round(n)) : null;
+  return { ...base, parts, category: String(body.category || 'other').slice(0, 20), paidBy: body.paidBy, split, shares, updatedBy: who };
 }
 
 // Screenshot: UploadThing par (token ho to), warna database mein

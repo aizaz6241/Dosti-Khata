@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History, Mic } from 'lucide-react';
-import { api, LS, thisMonth, haptic } from './lib';
+import { api, LS, thisMonth, haptic, nowTime } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
 import { useKhata, applyQueue, newId } from './sync';
 import { usePush } from './push';
@@ -13,6 +13,7 @@ import { Home, Khata, Mahina, Lock, InstallGuide } from './screens';
 import ActivityView, { relevant } from './components/Activity';
 import SyncDot from './components/SyncDot';
 import VoiceEntry from './components/VoiceEntry';
+import BatchReview, { itemOk } from './components/BatchReview';
 
 const COLORS = { aizaz: '#3D52D5', abdullah: '#D4931A' };
 const DEFAULT_PEOPLE = [{ id: 'aizaz', name: 'Aizaz' }, { id: 'abdullah', name: 'Abdullah' }];
@@ -25,6 +26,7 @@ export default function App() {
   const [khataMonth, setKhataMonth] = useState(thisMonth());
   const [tab, setTab] = useState('home');
   const [sheet, setSheet] = useState(null);
+  const [batch, setBatch] = useState(null); // AI ki kai entries, save se pehle
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
   const [loginErr, setLoginErr] = useState('');
@@ -162,13 +164,40 @@ export default function App() {
   const formProps = { ...common, busy };
   let sheetTitle = '', sheetBody = null;
   const aiProps = s?.prefill ? { prefill: s.prefill, ai: s.ai } : {};
-  if (s?.kind === 'expense') { sheetTitle = 'Naya kharcha'; sheetBody = <ExpenseForm {...formProps} {...aiProps} onSave={(b) => save(b)} />; }
-  if (s?.kind === 'loan') { sheetTitle = 'Qarz'; sheetBody = <PaymentForm {...formProps} {...aiProps} loan balance={balance} onSave={(b) => save(b)} />; }
-  if (s?.kind === 'payment') { sheetTitle = 'Paise bheje'; sheetBody = <PaymentForm {...formProps} {...aiProps} balance={balance} prefillClear={s.clear} onSave={(b) => save(b)} />; }
+  const inBatch = s?.batchIndex != null && batch;
+  const backToBatch = (body) => {
+    const items = batch.items.map((it, j) => (j === s.batchIndex ? { ...it, form: { ...it.form, ...body }, missing: [], assumed: [] } : it));
+    setBatch({ ...batch, items }); setSheet({ kind: 'batch' });
+  };
+  const saveOrBatch = (b) => (inBatch ? backToBatch(b) : save(b));
+  if (inBatch) aiProps.saveLabel = 'Theek hai, list mein wapas';
+  if (s?.kind === 'expense') { sheetTitle = 'Naya kharcha'; sheetBody = <ExpenseForm {...formProps} {...aiProps} onSave={saveOrBatch} />; }
+  if (s?.kind === 'loan') { sheetTitle = 'Qarz'; sheetBody = <PaymentForm {...formProps} {...aiProps} loan balance={balance} onSave={saveOrBatch} />; }
+  if (s?.kind === 'payment') { sheetTitle = 'Paise bheje'; sheetBody = <PaymentForm {...formProps} {...aiProps} balance={balance} prefillClear={s.clear} onSave={saveOrBatch} />; }
   if (s?.kind === 'ai') {
     sheetTitle = 'Bol kar likho';
     sheetBody = <VoiceEntry otherName={names[otherId]} online={sync.online}
-      onResult={(r) => setSheet({ kind: r.form.type, prefill: r.form, ai: { transcript: r.transcript, assumed: r.assumed, missing: r.missing, question: r.question } })} />;
+      onResult={(r) => {
+        if (r.items.length > 1) {
+          setBatch({ transcript: r.transcript, items: r.items.map((it, i) => ({ ...it, id: i + '-' + Date.now() })) });
+          setSheet({ kind: 'batch' });
+        } else {
+          const it = r.items[0];
+          setSheet({ kind: it.form.type, prefill: it.form, ai: { transcript: r.transcript, assumed: it.assumed, missing: it.missing, question: r.question } });
+        }
+      }} />;
+  }
+  if (s?.kind === 'batch' && batch) {
+    sheetTitle = 'AI ki entries';
+    sheetBody = <BatchReview items={batch.items} transcript={batch.transcript} {...common}
+      onEdit={(i) => { const it = batch.items[i]; setSheet({ kind: it.form.type, prefill: it.form, ai: { transcript: batch.transcript, assumed: it.assumed, missing: it.missing, question: '' }, batchIndex: i }); }}
+      onRemove={(i) => { const items = batch.items.filter((_, j) => j !== i); if (!items.length) { setBatch(null); setSheet(null); } else setBatch({ ...batch, items }); }}
+      onSaveAll={async () => {
+        const list = batch.items.filter((it) => itemOk(it.form));
+        for (const it of list) await sync.enqueue({ kind: 'create', key: newId(), body: { ...it.form, time: it.form.time || nowTime() } });
+        haptic(15); setBatch(null); setSheet(null);
+        say(`${list.length} entries save ho gayi` + (navigator.onLine ? '' : '. Net aate hi sync hongi'));
+      }} />;
   }
   if (s?.kind === 'detail') {
     sheetTitle = { payment: 'Payment', loan: 'Qarz', expense: 'Kharcha' }[s.entry.type];
@@ -277,7 +306,7 @@ export default function App() {
         ))}
       </nav>
 
-      <Sheet open={!!s} onClose={() => setSheet(null)} title={sheetTitle}>{sheetBody}</Sheet>
+      <Sheet open={!!s} onClose={() => (s?.batchIndex != null && batch ? setSheet({ kind: 'batch' }) : setSheet(null))} title={sheetTitle}>{sheetBody}</Sheet>
 
       <AnimatePresence>
         {toast && (

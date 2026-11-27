@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 
-const ENTRY_FIELDS = ['clientId', 'type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey', 'confirmedAt', 'confirmedBy'];
+const ENTRY_FIELDS = ['clientId', 'parts', 'type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey', 'confirmedAt', 'confirmedBy'];
 
 function mongoStore(uri) {
   const Entry = mongoose.models.Entry || mongoose.model('Entry', new mongoose.Schema(
@@ -29,6 +29,7 @@ function mongoStore(uri) {
       fileKey: String,
       confirmedAt: String,
       confirmedBy: String,
+      parts: [Number],
     },
     { timestamps: true, minimize: false }
   ));

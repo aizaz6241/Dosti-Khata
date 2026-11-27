@@ -29,8 +29,8 @@ export function calc(expr) {
 
 const KEYS = ['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '−', '.', '0', 'del', '+'];
 
-export default function Calculator({ onUse }) {
-  const [expr, setExpr] = useState('');
+export default function Calculator({ onUse, initial = '' }) {
+  const [expr, setExpr] = useState(initial);
   const result = calc(expr);
   const press = (k) => {
     if (k === 'del') return setExpr((e) => e.slice(0, -1));

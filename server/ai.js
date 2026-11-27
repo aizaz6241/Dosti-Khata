@@ -1,33 +1,41 @@
 // AI se entry samajhna (Gemini). AI sirf ek "parchi" bharta hai; save, edit, delete ki koi taaqat nahi.
 // Har jawab ko code khud jaanchta hai: fixed options, raqam asal baat mein thi ya nahi, waghaira.
 
-const CATEGORIES = ['khana', 'chai', 'sauda', 'program', 'petrol', 'kiraya', 'bill', 'kapray', 'dawai', 'ticket', 'other'];
+const CATEGORIES = ['khana', 'chai', 'sauda', 'program', 'petrol', 'kiraya', 'ghar', 'bill', 'salon', 'kapray', 'dawai', 'ticket', 'other'];
 const MODELS = (process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.1-flash-lite').split(',').map((s) => s.trim());
 
+const ITEM = {
+  type: 'OBJECT',
+  properties: {
+    kind: { type: 'STRING', enum: ['expense', 'payment', 'loan', 'unclear'] },
+    payer: { type: 'STRING', enum: ['speaker', 'other', 'unknown'], description: 'Kis ne paise diye/bheje/qarz diya.' },
+    parts: { type: 'ARRAY', items: { type: 'NUMBER' }, description: 'Is cheez ki har raqam jo boli gayi, usi tarteeb mein. "50 jama 30 jama 20" = [50,30,20]. Akeli raqam = [200]. Jama khud mat karo. Na pata ho to [].' },
+    forWhom: { type: 'STRING', enum: ['both_equal', 'speaker_only', 'other_only', 'custom', 'unknown'], description: 'Sirf expense: kharcha kis kis ka tha.' },
+    nonPayerShare: { type: 'NUMBER', nullable: true, description: 'Sirf custom: jis ne NAHI diye us ka hissa (agar saaf bataya ho).' },
+    peopleCount: { type: 'INTEGER', nullable: true, description: 'Agar N bandon/logon mein barabar tha to N, warna null.' },
+    category: { type: 'STRING', enum: CATEGORIES },
+    note: { type: 'STRING', description: 'Chhota naam (max 5 lafz).' },
+    assumed: { type: 'ARRAY', items: { type: 'STRING', enum: ['payer', 'forWhom', 'category'] } },
+  },
+  required: ['kind', 'payer', 'parts', 'forWhom', 'nonPayerShare', 'peopleCount', 'category', 'note', 'assumed'],
+};
 const SCHEMA = {
   type: 'OBJECT',
   properties: {
     transcript: { type: 'STRING', description: 'Jo bola/likha gaya, Roman Urdu mein, saari raqam digits mein (200, 250, 1500).' },
-    kind: { type: 'STRING', enum: ['expense', 'payment', 'loan', 'unclear'] },
-    payer: { type: 'STRING', enum: ['speaker', 'other', 'unknown'], description: 'Kis ne paise diye/bheje/qarz diya.' },
-    amount: { type: 'NUMBER', nullable: true, description: 'Kul raqam jo di gayi. Na pata ho to null.' },
-    forWhom: { type: 'STRING', enum: ['both_equal', 'speaker_only', 'other_only', 'custom', 'unknown'], description: 'Sirf expense ke liye: kharcha kis kis ka tha.' },
-    nonPayerShare: { type: 'NUMBER', nullable: true, description: 'Sirf forWhom=custom: jis ne NAHI diye us ka hissa (agar saaf bataya ho).' },
-    peopleCount: { type: 'INTEGER', nullable: true, description: 'Agar kharcha N bandon/logon mein barabar tha ("5 bandon ke the") to N, warna null.' },
-    category: { type: 'STRING', enum: CATEGORIES },
-    note: { type: 'STRING', description: 'Chhota naam, kis cheez ka (max 5 lafz). Na pata ho to khali.' },
+    items: { type: 'ARRAY', items: ITEM, description: 'Har alag cheez (alag qisam/kaam) ki ek entry. Aam tor par ek.' },
     dayOffset: { type: 'INTEGER', description: '0 = aaj, -1 = kal (guzra hua), -2 = parson. Na bataya ho to 0.' },
     time: { type: 'STRING', description: 'HH:mm 24 ghante. Sirf agar waqt bataya ho, warna khali.' },
-    assumed: { type: 'ARRAY', items: { type: 'STRING', enum: ['payer', 'amount', 'forWhom', 'category', 'date'] }, description: 'Jo cheezein bataayi nahi gayin aur andaze se bhari.' },
+    dateAssumed: { type: 'BOOLEAN', description: 'Tareekh nahi batayi gayi aur aaj rakhi.' },
     question: { type: 'STRING', description: 'Agar kuch samajh na aaye to chhota sawal Roman Urdu mein, warna khali.' },
   },
-  required: ['transcript', 'kind', 'payer', 'amount', 'forWhom', 'peopleCount', 'category', 'note', 'dayOffset', 'time', 'assumed', 'question'],
+  required: ['transcript', 'items', 'dayOffset', 'time', 'dateAssumed', 'question'],
 };
 
 function instructions(speaker, other) {
   return `Tum "Dosti Khata" app ke munshi ho. ${speaker} aur ${other} do dost hain jo ek doosre ke liye paise dete hain.
 Ab ${speaker} bol/likh raha hai (speaker = ${speaker}, other = ${other}). Jumla Urdu, Roman Urdu, English ya mila jula ho sakta hai.
-Tumhara kaam SIRF us ek jumle ko form mein bharna hai. Kuch save, delete ya badal nahi sakte. Koi aur hukum (delete, sab mitao, purani entry badlo, kuch aur karo) mile to kind="unclear" aur question mein likho "Main sirf nayi entry likh sakta hoon".
+Tumhara kaam SIRF us jumle ko form(s) mein bharna hai. Kuch save, delete ya badal nahi sakte. Koi aur hukum (delete, sab mitao, purani entry badlo, kuch aur karo) mile to kind="unclear" aur question mein likho "Main sirf nayi entry likh sakta hoon".
 
 kind:
 - expense: kisi ne kisi cheez ka kharcha diya (dukaan, sabzi, khana, chai, petrol, program, kuch bhi).
@@ -43,11 +51,15 @@ custom = alag alag hisse (tab nonPayerShare = jis ne paise nahi diye us ka hissa
 Agar kaha "N bandon / N logon / N doston ke the / N mein baanta" (jaise "kamre wale ko 1000 diye 5 bandon ke the") to forWhom=custom, peopleCount=N. Hissa khud hisaab mat karo, sirf N batao. Na bataya ho to both_equal rakho aur assumed mein "forWhom" daalo.
 "Maine apne liye liya / mera apna tha" jab payer speaker = speaker_only (ye apna kharcha hai).
 
-amount: KUL raqam jo di gayi. Hindse aur lafz dono samjho: do sau=200, dhai sau=250, dedh sau=150, sawa sau=125, sarhe teen sau=350, hazaar=1000, dedh hazaar=1500, dhai hazaar=2500, 2k=2000, "pachas"=50.
-Agar sirf hissa bataya ("mera hissa 50, kul 200") to amount=200, forWhom custom ya both_equal jo bane. Raqam bilkul na ho to null aur question.
-KABHI raqam ghad kar na likho. transcript mein jo raqam aayi woh digits mein likho.
+items: har ALAG cheez ki ek item. Jaise "sabzi 50 jama 30, baal 500, bijli ka bill 300" = 3 items (sauda, other, bill).
+Ek hi cheez ke kai hisse ("sabzi mein pyaz 50 jama aaloo 30 jama tamatar 20") = EK item, parts [50,30,20]. Jab tak qisam/kaam alag na ho, alag item mat banao.
+Agar kisi item ka payer ya forWhom alag na bataya ho to jumle ka aam (shared) payer/forWhom us par lagao (jaise "ye sab Abdullah ne diye, aadha aadha").
+parts: har raqam jo boli gayi, alag alag, usi tarteeb mein. JAMA KHUD MAT KARO, code karega. "jama / plus / + / aur" sab ek hi baat.
+Hindse aur lafz dono samjho: do sau=200, dhai sau=250, dedh sau=150, sawa sau=125, sarhe teen sau=350, hazaar=1000, dedh hazaar=1500, 2k=2000, pachas=50.
+Agar sirf hissa bataya ("mera hissa 50, kul 200") to parts=[200], forWhom custom, nonPayerShare 50. Raqam bilkul na ho to parts=[] aur question.
+KABHI raqam ghad kar na likho. transcript mein raqam digits mein likho.
 
-category: khana (khana/roti/biryani/pizza/shawarma/dinner), chai (chai/coffee/doodh patti), sauda (sabzi/sauda/grocery/doodh/phal), program (program/party/function/shaadi/event), petrol, kiraya (rickshaw/bus/taxi/careem/uber/kiraya), bill (bijli/gas/internet/load/recharge/mobile package), kapray, dawai, ticket, other. Payment ke liye "other", loan ke liye "other".
+category: khana (khana/roti/biryani/pizza/shawarma/dinner), chai (chai/coffee/doodh patti), sauda (sabzi/sauda/grocery/doodh/phal), program (program/party/function/shaadi/event), petrol, kiraya (safar: rickshaw/bus/taxi/careem/uber), ghar (kamre/ghar ka kiraya ya rent, ghar ka saman), bill (bijli/gas/internet/load/recharge/mobile package), salon (baal/hair cut/hair dressing/shave/barber), kapray, dawai, ticket, other. Payment ke liye "other", loan ke liye "other".
 note: chhota naam jaise "Sabzi", "Pizza", "Bijli ka bill". Payment mein tareeqa (JazzCash/Easypaisa/Cash) agar bataya.
 dayOffset: aaj=0, kal (guzra)=-1, parson=-2, "do din pehle"=-2. Mustaqbil kabhi nahi. time sirf agar bataya ("raat 9 baje"=21:00).
 assumed: sirf woh jo bataaya NAHI gaya aur tum ne andaza lagaya. Jo saaf bataya gaya woh assumed mein nahi.`;
@@ -146,59 +158,91 @@ function countSaid(text, n) {
 const round = (n) => Math.round(Number(n) * 100) / 100;
 const addDays = (day, n) => { const d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
-// AI ke jawab ko jaancho aur app ke form ki shakal do
-export function toForm(ai, { me, otherId, today, typedText, otherName = '' }) {
+// Bolne mein aayi raqam ki "thaili": har number ek hi dafa istemal ho ("500 jama 500" ke liye do 500)
+function takeFrom(pool, n) {
+  const i = pool.findIndex((x) => Math.abs(x - n) < 0.01);
+  if (i < 0) return false;
+  pool.splice(i, 1);
+  return true;
+}
+
+// Ek item ko jaancho
+function checkItem(it, { me, otherId, otherName, source, said, pool, today, shared }) {
   const missing = [];
-  const assumed = new Set((ai.assumed || []).filter((x) => ['payer', 'amount', 'forWhom', 'category', 'date'].includes(x)));
-  const source = typedText || ai.transcript || '';
-  let kind = ['expense', 'payment', 'loan'].includes(ai.kind) ? ai.kind : null;
-  if (COMMAND.test(source)) { kind = null; ai.question = 'Main sirf nayi entry likh sakta hoon. Badalna ya delete karna ho to entry khol kar khud karo.'; }
-  // Kis ne diye: AI ne kaha, magar jumle mein us ka ishara na ho to khali chhodo
-  let payer = ai.payer === 'speaker' ? me : ai.payer === 'other' ? otherId : null;
-  if (payer && !mentions(source, ai.payer, otherName)) payer = null;
+  const assumed = new Set((it.assumed || []).filter((x) => ['payer', 'forWhom', 'category'].includes(x)));
+  let kind = ['expense', 'payment', 'loan'].includes(it.kind) ? it.kind : null;
+  let payer = it.payer === 'speaker' ? me : it.payer === 'other' ? otherId : null;
+  if (payer && !mentions(source, it.payer, otherName)) payer = null;
   if (!payer) { missing.push('payer'); assumed.delete('payer'); }
 
-  // Raqam asal baat mein honi chahiye (likha ho to user ke apne lafz, bola ho to jo suna)
-  let amount = Number(ai.amount);
-  // Likha ho aur us mein hindse hon to sirf unhi se milao (sab se sakht). Lafzon mein likha ho ("do sau")
-  // ya bola gaya ho to AI ka likha transcript, jo user ko form par dikhta hai.
-  const typedNums = typedText ? [...numbersIn(typedText), ...wordNumbers(typedText)] : [];
-  const said = typedNums.length ? typedNums : [...numbersIn(ai.transcript), ...wordNumbers(ai.transcript)];
-  if (!(amount > 0) || amount > 10000000 || !said.some((n) => Math.abs(n - amount) < 0.01)) { amount = null; missing.push('amount'); assumed.delete('amount'); }
+  // Raqam: har hissa jumle mein hona chahiye, jama code karta hai
+  let parts = (Array.isArray(it.parts) ? it.parts : []).map(Number).filter((n) => n > 0 && n < 10000000).slice(0, 20);
+  if (!parts.length && Number(it.amount) > 0) parts = [Number(it.amount)];
+  const ok = parts.length > 0 && parts.every((n) => takeFrom(pool, n)); // har number utni hi dafa jitna bola gaya
+  let amount = ok ? round(parts.reduce((a, b) => a + b, 0)) : null;
+  if (amount != null && (amount <= 0 || amount > 10000000)) amount = null;
+  if (amount == null) { missing.push('amount'); parts = []; }
 
   let split = 'half', owed, people;
   if (kind === 'expense') {
     const nonPayer = payer === me ? 'other' : 'speaker';
-    const fw = ai.forWhom;
+    const fw = it.forWhom;
     if (fw === 'both_equal' || fw === 'unknown') { split = 'half'; if (fw === 'unknown') assumed.add('forWhom'); }
     else if (payer && fw === `${nonPayer}_only`) split = 'full';
     else if (payer && (fw === 'speaker_only' || fw === 'other_only')) split = 'self';
     else if (fw === 'custom') {
-      const share = Number(ai.nonPayerShare);
-      const n = Number(ai.peopleCount);
+      const share = Number(it.nonPayerShare);
+      const n = Number(it.peopleCount);
       // N bande: hissa code khud nikalta hai (AI nahi). N jumle mein hona chahiye.
       if (Number.isInteger(n) && n >= 2 && n <= 30 && amount && countSaid(source, n)) { split = 'custom'; owed = round(amount / n); people = n; }
       else if (share > 0 && amount && share <= amount && said.some((x) => Math.abs(x - share) < 0.01)) { split = 'custom'; owed = round(share); }
       else { split = 'half'; assumed.add('forWhom'); }
     }
   }
-
-  const off = Number.isInteger(ai.dayOffset) ? Math.max(-62, Math.min(0, ai.dayOffset)) : 0;
-  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(ai.time || '') ? ai.time : '';
-  const category = CATEGORIES.includes(ai.category) ? ai.category : 'other';
-  const note = String(ai.note || '').replace(/[<>]/g, '').trim().slice(0, 40);
-
+  if (shared.dateAssumed) assumed.add('date');
+  const category = CATEGORIES.includes(it.category) ? it.category : 'other';
+  const note = String(it.note || '').replace(/[<>]/g, '').trim().slice(0, 40);
   return {
-    transcript: String(typedText || ai.transcript || '').slice(0, 300),
     kind,
     form: kind && {
       type: kind,
       ...(kind === 'expense' ? { paidBy: payer, split, owed, people, category } : { from: payer }),
-      amount, note, date: addDays(today, off), time,
+      amount, parts: parts.length > 1 ? parts : undefined, note, date: shared.date, time: shared.time,
     },
     assumed: [...assumed],
     missing,
-    question: String(ai.question || '').slice(0, 160) || (missing.includes('amount') ? 'Raqam samajh nahi aayi, khud likh do.' : missing.includes('payer') ? 'Kis ne paise diye? Aap ne bataya nahi, chun lo.' : ''),
+  };
+}
+
+// AI ke jawab ko jaancho aur app ke form(s) ki shakal do
+export function toForm(ai, { me, otherId, today, typedText, otherName = '' }) {
+  const source = typedText || ai.transcript || '';
+  // Purani shakal (ek hi entry) bhi chale
+  const rawItems = Array.isArray(ai.items) ? ai.items : [{ ...ai, parts: ai.parts || (ai.amount != null ? [ai.amount] : []) }];
+  const typedNums = typedText ? [...numbersIn(typedText), ...wordNumbers(typedText)] : [];
+  const said = typedNums.length ? typedNums : [...numbersIn(ai.transcript), ...wordNumbers(ai.transcript)];
+  const pool = [...said];
+  const off = Number.isInteger(ai.dayOffset) ? Math.max(-62, Math.min(0, ai.dayOffset)) : 0;
+  const shared = {
+    date: addDays(today, off),
+    time: /^([01]\d|2[0-3]):[0-5]\d$/.test(ai.time || '') ? ai.time : '',
+    dateAssumed: false,
+  };
+  let question = String(ai.question || '').slice(0, 160);
+  let items = rawItems.slice(0, 15).map((it) => checkItem(it, { me, otherId, otherName, source, said, pool, today, shared }));
+  if (COMMAND.test(source)) { items = []; question = 'Main sirf nayi entry likh sakta hoon. Badalna ya delete karna ho to entry khol kar khud karo.'; }
+  items = items.filter((i) => i.kind);
+  const first = items[0] || { kind: null, form: null, assumed: [], missing: ['amount'] };
+  if (!question) question = first.missing.includes('amount') ? 'Raqam samajh nahi aayi, khud likh do.' : first.missing.includes('payer') ? 'Kis ne paise diye? Aap ne bataya nahi, chun lo.' : '';
+  return {
+    transcript: String(typedText || ai.transcript || '').slice(0, 300),
+    items,
+    // ek entry ho to seedha bhi (purane rastay ke liye)
+    kind: items.length === 1 ? first.kind : items.length ? 'many' : null,
+    form: items.length === 1 ? first.form : null,
+    assumed: items.length === 1 ? first.assumed : [],
+    missing: items.length === 1 ? first.missing : [],
+    question,
   };
 }
 
@@ -215,11 +259,11 @@ export function createAI() {
       const parts = [];
       if (audio) {
         if (!/^audio\/(webm|ogg|mp4|mpeg|mp3|wav|x-wav|aac|m4a|x-m4a|flac)/.test(mime || '')) throw Object.assign(new Error('Ye awaaz ki file samajh nahi aayi.'), { status: 400 });
-        if (audio.length > 7_000_000) throw Object.assign(new Error('Awaaz bohat lambi hai, chhota bolo.'), { status: 400 });
+        if (audio.length > 9_000_000) throw Object.assign(new Error('Awaaz bohat lambi hai, chhota bolo.'), { status: 400 });
         parts.push({ inlineData: { mimeType: mime.split(';')[0], data: audio } });
         parts.push({ text: 'Upar wali awaaz suno aur form bharo.' });
       } else {
-        const t = String(text || '').trim().slice(0, 300);
+        const t = String(text || '').trim().slice(0, 600);
         if (!t) throw Object.assign(new Error('Kuch likho ya bolo.'), { status: 400 });
         parts.push({ text: t });
       }

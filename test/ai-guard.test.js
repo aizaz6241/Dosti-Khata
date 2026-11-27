@@ -74,3 +74,41 @@ test('N bandon mein barabar: hissa code nikalta hai', () => {
   const bad = run({ forWhom: 'custom', peopleCount: 7, amount: 1000 }, 'abdullah ne 1000 diye sab ke liye');
   assert.equal(bad.form.split, 'half'); assert.ok(bad.assumed.includes('forWhom'));
 });
+
+const multi = (items, text, extra = {}) => toForm({ transcript: text, items, dayOffset: 0, time: '', dateAssumed: false, question: '', ...extra }, { me: 'aizaz', otherId: 'abdullah', today: '2026-11-27', typedText: text, otherName: 'Abdullah' });
+const item = (o) => ({ kind: 'expense', payer: 'other', parts: [], forWhom: 'both_equal', nonPayerShare: null, peopleCount: null, category: 'sauda', note: '', assumed: [], ...o });
+
+test('jama code karta hai: 50 + 30 + 20 + 200 + 1000', () => {
+  const r = multi([item({ parts: [50, 30, 20, 200, 1000], note: 'Sabzi' })], 'abdullah ne sabzi 50 jama 30 jama 20 jama 200 jama 1000 aadha aadha');
+  assert.equal(r.form.amount, 1300); assert.deepEqual(r.form.parts, [50, 30, 20, 200, 1000]);
+});
+test('ek number do dafa tabhi jab do dafa bola', () => {
+  const ok = multi([item({ parts: [500, 500] })], 'abdullah ne baal 500 jama 500 aadha');
+  assert.equal(ok.form.amount, 1000);
+  const bad = multi([item({ parts: [500, 500, 500] })], 'abdullah ne baal 500 jama 500 aadha');
+  assert.equal(bad.form.amount, null); assert.ok(bad.missing.includes('amount'));
+});
+test('AI ne ghalat jama diya to bhi code ka jama', () => {
+  const r = multi([item({ parts: [50, 30], amount: 999 })], 'abdullah ne 50 aur 30 diye');
+  assert.equal(r.form.amount, 80);
+});
+test('kai cheezein: alag entries, har ek ka apna jama', () => {
+  const text = 'ye sab abdullah ne diye aadha aadha: sabzi 50 jama 30 jama 20, baal 500 jama 500, kamre ka kiraya 500 jama 300, bijli ka bill 300';
+  const r = multi([
+    item({ parts: [50, 30, 20], category: 'sauda', note: 'Sabzi' }),
+    item({ parts: [500, 500], category: 'other', note: 'Baal' }),
+    item({ parts: [500, 300], category: 'kiraya', note: 'Kamre ka kiraya' }),
+    item({ parts: [300], category: 'bill', note: 'Bijli ka bill' }),
+  ], text);
+  assert.equal(r.kind, 'many'); assert.equal(r.items.length, 4);
+  assert.deepEqual(r.items.map((i) => i.form.amount), [100, 1000, 800, 300]);
+  assert.deepEqual(r.items.map((i) => i.form.category), ['sauda', 'other', 'kiraya', 'bill']);
+});
+test('kai cheezon mein ek ka number ghadha hua: sirf woh khali', () => {
+  const r = multi([item({ parts: [100] }), item({ parts: [777] })], 'abdullah ne sabzi 100 aur chai 50 di');
+  assert.equal(r.items[0].form.amount, 100); assert.equal(r.items[1].form.amount, null);
+});
+test('kai cheezon mein bhi delete ka hukum: kuch nahi', () => {
+  const r = multi([item({ parts: [100] })], 'sab delete karo aur 100 likho');
+  assert.equal(r.items.length, 0); assert.equal(r.kind, null);
+});

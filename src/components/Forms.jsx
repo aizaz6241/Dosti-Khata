@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Calculator from './Calculator';
 import { Trash2, ImagePlus, X, Sparkles, Calculator as CalcIcon, Minus, Plus as PlusIcon } from 'lucide-react';
-import { CATEGORIES, compressImage, shotUrl, rs, today, nowTime } from '../lib';
+import { CATEGORIES, compressImage, shotUrl, rs, num, today, nowTime } from '../lib';
 
-function AmountInput({ value, onChange, autoFocus, label, calc = true }) {
+function AmountInput({ value, onChange, autoFocus, label, calc = true, parts }) {
   const [showCalc, setShowCalc] = useState(false);
+  const [calcInit, setCalcInit] = useState('');
+  const sum = parts?.length > 1 ? Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  const showParts = sum != null && Number(value) === sum;
   const len = String(value || '0').length;
   const size = len > 9 ? 30 : len > 7 ? 36 : 46; // lambi raqam: font khud chhota
   return (
@@ -28,15 +31,20 @@ function AmountInput({ value, onChange, autoFocus, label, calc = true }) {
           </span>
         </span>
       </label>
+      {showParts && !showCalc && (
+        <button type="button" className="parts-line" onClick={() => { setCalcInit(parts.join('+')); setShowCalc(true); }}>
+          {parts.map((p) => num(p)).join(' + ')} = <b>{num(sum)}</b> <span>Calculator mein dekho</span>
+        </button>
+      )}
       {calc && (
-        <button type="button" className={'calc-toggle' + (showCalc ? ' on' : '')} onClick={() => setShowCalc((v) => !v)} aria-expanded={showCalc}>
+        <button type="button" className={'calc-toggle' + (showCalc ? ' on' : '')} onClick={() => { if (!showCalc) setCalcInit(showParts ? parts.join('+') : ''); setShowCalc((v) => !v); }} aria-expanded={showCalc}>
           <CalcIcon size={17} /> {showCalc ? 'Calculator band karo' : 'Calculator'}
         </button>
       )}
       <AnimatePresence initial={false}>
         {showCalc && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: 'hidden' }}>
-            <Calculator onUse={(r) => { onChange(String(r)); setShowCalc(false); }} />
+            <Calculator key={calcInit} initial={calcInit} onUse={(r) => { onChange(String(r)); setShowCalc(false); }} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -103,7 +111,7 @@ function AiBanner({ ai }) {
 const flag = (ai, ...f) => (ai && f.some((x) => ai.missing?.includes(x) || ai.assumed?.includes(x)) ? ' ai-check' : '');
 
 /* ---------------- Kharcha ---------------- */
-export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, onSave, onDelete, busy }) {
+export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, onSave, onDelete, busy, saveLabel }) {
   const seed = initial || prefill;
   const initSplit = seed ? (['half', 'full', 'self', 'custom'].includes(seed.split) ? seed.split : 'custom') : 'half';
   const [paidBy, setPaidBy] = useState(initial ? initial.paidBy : prefill ? prefill.paidBy : me);
@@ -136,7 +144,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
   const submit = (ev) => {
     ev.preventDefault();
     if (!paidBy || amt <= 0 || (owed <= 0 && split !== 'self')) return;
-    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date, time });
+    onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date, time, people: split === 'custom' ? people || undefined : undefined, parts: prefill?.parts && Number(amount) === prefill.parts.reduce((a, b) => a + b, 0) ? prefill.parts : undefined });
   };
 
   return (
@@ -148,7 +156,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
           options={[{ value: me, label: 'Main ne', color: colors[me] }, { value: otherId, label: `${other} ne`, color: colors[otherId] }]} />
       </div>
 
-      <div className={flag(ai, 'amount').trim()}><AmountInput label="Kul kitne diye?" value={amount} onChange={setAmount} autoFocus={!initial && !prefill} /></div>
+      <div className={flag(ai, 'amount').trim()}><AmountInput label="Kul kitne diye?" value={amount} onChange={setAmount} autoFocus={!initial && !prefill} parts={prefill?.parts} /></div>
       <input className="text-field" placeholder="Kis cheez par? (sabzi, chai, program, kuch bhi)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
 
       <div className={'chips' + flag(ai, 'category')} role="radiogroup" aria-label="Qisam">
@@ -206,14 +214,14 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
 
       <div className="form-actions">
         {initial && <DeleteButton onDelete={onDelete} />}
-        <button className="btn primary" disabled={busy || !paidBy || amt <= 0 || (owed <= 0 && split !== 'self')}>{initial ? 'Tabdeeli save karo' : 'Kharcha save karo'}</button>
+        <button className="btn primary" disabled={busy || !paidBy || amt <= 0 || (owed <= 0 && split !== 'self')}>{saveLabel || (initial ? 'Tabdeeli save karo' : 'Kharcha save karo')}</button>
       </div>
     </form>
   );
 }
 
 /* ---------------- Payment ---------------- */
-export function PaymentForm({ me, otherId, names, colors, balance, initial, prefill, ai, prefillClear, onSave, onDelete, busy, loan }) {
+export function PaymentForm({ me, otherId, names, colors, balance, initial, prefill, ai, prefillClear, onSave, onDelete, busy, loan, saveLabel }) {
   const other = names[otherId];
   const defaultFrom = initial?.from || (loan ? otherId : balance.amount > 0 ? balance.from : me);
   const [from, setFrom] = useState(prefill ? prefill.from : defaultFrom);
@@ -276,7 +284,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
           : (from === me ? `Aap ne ${other} ko bheje` : `${other} ne aap ko bheje`)}</p>
       </div>
 
-      <div className={flag(ai, 'amount').trim()}><AmountInput value={amount} onChange={setAmount} autoFocus={!initial && !prefill} /></div>
+      <div className={flag(ai, 'amount').trim()}><AmountInput value={amount} onChange={setAmount} autoFocus={!initial && !prefill} parts={prefill?.parts} /></div>
 
       {!initial && !prefill && !loan && owedNow > 0 && (
         <button type="button" className="quick-clear" onClick={() => setAmount(String(Math.round(owedNow)))}>
@@ -313,7 +321,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
 
       <div className="form-actions">
         {initial && <DeleteButton onDelete={onDelete} />}
-        <button className="btn primary" disabled={busy || amt <= 0 || !from}>{busy ? 'Save ho raha hai...' : initial ? 'Tabdeeli save karo' : loan ? 'Qarz save karo' : 'Payment save karo'}</button>
+        <button className="btn primary" disabled={busy || amt <= 0 || !from}>{busy ? 'Save ho raha hai...' : saveLabel || (initial ? 'Tabdeeli save karo' : loan ? 'Qarz save karo' : 'Payment save karo')}</button>
       </div>
     </form>
   );

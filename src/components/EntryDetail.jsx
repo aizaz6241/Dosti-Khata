@@ -51,6 +51,7 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
 
       <dl className="facts">
         <div><dt>Kya hua</dt><dd>{v.line}</dd></div>
+        {e.parts?.length > 1 && (e.createdBy === me || e.paidBy === me) && <div><dt>Hisaab</dt><dd>{e.parts.map((x) => Math.round(x).toLocaleString('en-PK')).join(' + ')} = {rs(e.amount)}</dd></div>}
         {isPay ? (
           <>
             <div><dt>Purane hisaab mein lage</dt><dd>{rs(c.owed - c.left)}</dd></div>

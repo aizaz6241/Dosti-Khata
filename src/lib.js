@@ -1,4 +1,4 @@
-import { Utensils, Coffee, ShoppingBasket, Fuel, Car, Receipt, Shirt, CircleDot, ArrowLeftRight, PartyPopper, Pill, Ticket, HandCoins } from 'lucide-react';
+import { Utensils, Coffee, ShoppingBasket, Fuel, Car, Receipt, Shirt, CircleDot, ArrowLeftRight, PartyPopper, Pill, Ticket, HandCoins, House, Scissors } from 'lucide-react';
 
 const LS = {
   get: (k, d = null) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -76,8 +76,10 @@ export const CATEGORIES = [
   { id: 'sauda', label: 'Sabzi / sauda', icon: ShoppingBasket },
   { id: 'program', label: 'Program', icon: PartyPopper },
   { id: 'petrol', label: 'Petrol', icon: Fuel },
-  { id: 'kiraya', label: 'Kiraya', icon: Car },
+  { id: 'kiraya', label: 'Safar', icon: Car },
+  { id: 'ghar', label: 'Ghar / kamra', icon: House },
   { id: 'bill', label: 'Bill', icon: Receipt },
+  { id: 'salon', label: 'Baal / salon', icon: Scissors },
   { id: 'kapray', label: 'Kapray', icon: Shirt },
   { id: 'dawai', label: 'Dawai', icon: Pill },
   { id: 'ticket', label: 'Ticket', icon: Ticket },

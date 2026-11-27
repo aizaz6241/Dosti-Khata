@@ -38,8 +38,8 @@ export default function VoiceEntry({ otherName, online, onResult }) {
     setState('think'); setErr('');
     try {
       const r = await api('/ai/parse', { method: 'POST', body: { ...body, today: today() } });
-      if (!r.kind || !r.form) { setState('error'); setErr(r.question || 'Ye kharcha, payment ya qarz samajh nahi aaya. Dobara bolo ya haath se likho.'); return; }
-      if (!r.form.time) r.form.time = nowTime();
+      if (!r.items?.length) { setState('error'); setErr(r.question || 'Ye kharcha, payment ya qarz samajh nahi aaya. Dobara bolo ya haath se likho.'); return; }
+      for (const it of r.items) if (!it.form.time) it.form.time = nowTime();
       onResult(r);
     } catch (e) {
       setState('error');
@@ -116,7 +116,7 @@ export default function VoiceEntry({ otherName, online, onResult }) {
 
       <div className="voice-or">{canRecord ? 'ya likh kar batao' : 'Likh kar batao'}</div>
       <form className="voice-text" onSubmit={(e) => { e.preventDefault(); if (text.trim() && state !== 'think') send({ text }); }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Jaise: pizza 1200 maine diya, aadha aadha" maxLength={300} disabled={state === 'think' || state === 'rec'} />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Jaise: sabzi 50 jama 30, bijli 300, Abdullah ne diye aadha aadha" maxLength={600} disabled={state === 'think' || state === 'rec'} />
         <button className="icon-btn send" disabled={!text.trim() || state === 'think'} aria-label="Samjho"><Send size={19} /></button>
       </form>
 

@@ -128,3 +128,17 @@ test('binance: upar wala rate, ajeeb ho to beech wala', async () => {
   const g = await r.get();
   assert.equal(g.rates.USDT, 280.4); assert.equal(g.sources.USDT, 'CoinGecko'); assert.equal(g.rates.USD, 279);
 });
+
+import { rangeReport, addDays } from '../server/money.js';
+test('muddat ka hisaab: hafta + pichla hafta', () => {
+  const tx = [
+    { type: 'expense', amount: 100, accountId: 'c', date: '2026-11-23', category: 'chai' },
+    { type: 'expense', amount: 300, accountId: 'c', date: '2026-11-29', category: 'khana' },
+    { type: 'expense', amount: 200, accountId: 'c', date: '2026-11-20', category: 'khana' },
+    { type: 'income', amount: 1000, accountId: 'c', date: '2026-11-25', category: 'salary' },
+  ];
+  const r = rangeReport(tx, [{ clientId: 'c', currency: 'PKR' }], '2026-11-23', '2026-11-29', {}, [{ date: '2026-11-24', amount: 50, category: 'safar' }]);
+  assert.equal(r.days, 7); assert.equal(r.spent, 450); assert.equal(r.khata, 50); assert.equal(r.income, 1000);
+  assert.equal(r.prev.from, '2026-11-16'); assert.equal(r.prev.spent, 200); assert.equal(r.change, 125);
+  assert.equal(r.top[0].pkr, 300); assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+});

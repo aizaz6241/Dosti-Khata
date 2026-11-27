@@ -60,7 +60,7 @@ function AccountPick({ accounts, balances, value, onChange, label, exclude, onCr
   );
 }
 
-export function TxnForm({ initial, preset, accounts, contacts, balances, onSave, onDelete, onCreateAccount, onCreateContact }) {
+export function TxnForm({ initial, preset, accounts, contacts, balances, rates = {}, onSave, onDelete, onCreateAccount, onCreateContact }) {
   const [newPerson, setNewPerson] = useState(null);
   const startType = initial?.type || preset?.type || 'expense';
   const [type, setType] = useState(startType);
@@ -71,6 +71,7 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
   const [amount, setAmount] = useState(initial ? String(Math.abs(initial.amount)) : '');
   const [adjSign, setAdjSign] = useState(initial?.type === 'adjust' && initial.amount < 0 ? -1 : 1);
   const [toAmount, setToAmount] = useState(initial?.toAmount != null ? String(initial.toAmount) : '');
+  const [rate, setRate] = useState(initial?.rate ? String(initial.rate) : ''); // transfer ka apna rate
   const [category, setCategory] = useState(initial?.category || (startType === 'income' ? 'salary' : 'khana'));
   const [contactId, setContact] = useState(initial?.contactId || preset?.contactId || '');
   const [note, setNote] = useState(initial?.note || '');
@@ -83,6 +84,13 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
   const toAcc = accounts.find((a) => idOf(a) === toAccountId);
   const cur = (isLoan(type) && old) ? 'PKR' : acc?.currency || 'PKR';
   const crossCur = type === 'transfer' && toAcc && toAcc.currency !== cur;
+  // Rate hamesha "1 bahar wali currency = kitne PKR" (ya PKR na ho to 1 bhejne wali = kitni pohanchne wali)
+  const toCur = toAcc?.currency || 'PKR';
+  const fx = crossCur ? (cur !== 'PKR' ? cur : toCur) : null;
+  const base = crossCur ? (cur === 'PKR' || toCur === 'PKR' ? 'PKR' : toCur) : null;
+  const calcTo = (a, r) => { const A = Number(a) || 0, R = Number(r) || 0; if (!(A > 0 && R > 0)) return ''; const v = cur === fx ? A * R : A / R; return String(Math.round(v * 100) / 100); };
+  const calcRate = (a, t) => { const A = Number(a) || 0, T = Number(t) || 0; if (!(A > 0 && T > 0)) return ''; const v = cur === fx ? T / A : A / T; return String(Math.round(v * 10000) / 10000); };
+  const liveRate = fx && base === 'PKR' ? rates[fx] : null;
   const amt = Number(amount) || 0;
   const main = isLoan(type) ? 'loan' : type;
   const people = contacts.filter((c) => !c.archived);
@@ -101,7 +109,7 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
     const body = { type, amount: type === 'adjust' ? adjSign * amt : amt, accountId: noAcc ? '' : accountId, note, date, time };
     if (noAcc) body.old = true;
     if (type === 'expense' || type === 'income') body.category = category;
-    if (type === 'transfer') { body.toAccountId = toAccountId; body.toAmount = crossCur ? Number(toAmount) : amt; }
+    if (type === 'transfer') { body.toAccountId = toAccountId; body.toAmount = crossCur ? Number(toAmount) : amt; if (crossCur && Number(rate) > 0) body.rate = Number(rate); }
     if (isLoan(type)) body.contactId = contactId;
     onSave(body);
   };
@@ -139,7 +147,7 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
         </div>
       )}
 
-      <AmountInput label={type === 'transfer' ? 'Kitne bheje?' : null} value={amount} onChange={setAmount} autoFocus={!initial} cur={cur === 'PKR' ? 'Rs' : cur} />
+      <AmountInput label={type === 'transfer' ? 'Kitne bheje?' : null} value={amount} onChange={(v) => { setAmount(v); if (crossCur && Number(rate) > 0) setToAmount(calcTo(v, rate)); }} autoFocus={!initial} cur={cur === 'PKR' ? 'Rs' : cur} />
 
       {isLoan(type) && (
         <div className="field">
@@ -177,11 +185,18 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
         <AccountPick accounts={accounts} balances={balances} value={toAccountId} onChange={setTo} exclude={accountId} onCreate={onCreateAccount} label="Kis account mein?" />
       )}
       {crossCur && (
-        <label className="custom-one">
-          <span>{toAcc.name} mein kitne pohanche? ({toAcc.currency})</span>
-          <input inputMode="decimal" value={toAmount} placeholder="0" onChange={(e) => setToAmount(e.target.value.replace(/[^\d.]/g, ''))} />
-          {amt > 0 && Number(toAmount) > 0 && <small className="rate-note">Rate: 1 {cur} = {(Number(toAmount) / amt).toLocaleString('en-PK', { maximumFractionDigits: 2 })} {toAcc.currency}</small>}
-        </label>
+        <div className="fx-box">
+          <label className="custom-one">
+            <span>Kis rate par? 1 {fx} = kitne {base}</span>
+            <input inputMode="decimal" value={rate} placeholder={liveRate ? String(liveRate) : '0'} onChange={(e) => { const r = e.target.value.replace(/[^\d.]/g, ''); setRate(r); setToAmount(calcTo(amount, r)); }} />
+            {liveRate ? <button type="button" className="rate-note fx-live" onClick={() => { setRate(String(liveRate)); setToAmount(calcTo(amount, liveRate)); }}>Binance ka abhi ka rate: {liveRate} (lagao)</button> : null}
+          </label>
+          <label className="custom-one">
+            <span>{toAcc.name} mein kitne pohanche? ({toCur})</span>
+            <input inputMode="decimal" value={toAmount} placeholder="0" onChange={(e) => { const t = e.target.value.replace(/[^\d.]/g, ''); setToAmount(t); setRate(calcRate(amount, t)); }} />
+          </label>
+          <small className="hint">Rate likho to raqam khud ban jayegi, ya pohanchi hui raqam likho to rate khud nikal aayega.</small>
+        </div>
       )}
 
       {(type === 'expense' || type === 'income') && (

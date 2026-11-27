@@ -13,7 +13,7 @@ const lastMonths = (n) => {
   return out;
 };
 
-export async function exportPdf({ name, mine, balances, people, worth, shared, me, names, rates: liveRates, spend = [], allTx }) {
+export async function exportPdf({ name, mine, balances, people, worth, shared, me, names, rates: liveRates, spend = [], allTx, range, reportRange }) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
@@ -41,7 +41,7 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
   doc.setFillColor(...pine); doc.rect(0, 0, W, 86, 'F');
   doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.text('Dosti Khata: Mera Hisaab', 40, 42);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-  doc.text(`${name}  |  Bana: ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`, 40, 64);
+  doc.text(`${name}  |  ${range ? `Muddat: ${range.label} (${range.from} se ${range.to})  |  ` : ''}Bana: ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`, 40, 64);
   y = 110;
   doc.setTextColor(23, 33, 29); doc.setFontSize(11);
   const owe = Object.values(people).reduce((a, p) => a + Math.max(0, p.balance.PKR || 0), 0);
@@ -66,12 +66,16 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
     return [m, fmt(r.spent), fmt(r.khata), fmt(r.income), fmt(r.saved), fmt(r.lent), fmt(r.gotBack)];
   }));
 
-  const r0 = monthReport(mine.ptx, mine.accounts, months[0], rates, spend);
-  head(`Is mahine (${months[0]}) kis cheez par kharcha`);
+  const r0 = range && reportRange ? reportRange({ kind: 'custom', from: range.from, to: range.to }) : monthReport(mine.ptx, mine.accounts, months[0], rates, spend);
+  if (range) {
+    head(`Is muddat ka khulasa (${range.label})`);
+    table(['Kharcha', `Is mein ${other} khata`, 'Aamdani', 'Bacha', 'Roz ka avg', 'Pichli itni muddat se'], [[fmt(r0.spent), fmt(r0.khata), fmt(r0.income), fmt(r0.saved), fmt(r0.perDay), r0.change == null ? '-' : `${r0.change > 0 ? '+' : ''}${r0.change}%`]]);
+  }
+  head(range ? `Kis cheez par kharcha (${range.label})` : `Is mahine (${months[0]}) kis cheez par kharcha`);
   const cats = Object.entries(r0.byCat).sort((a, b) => b[1] - a[1]);
   table(['Qisam', 'Raqam', 'Hissa'], cats.length ? cats.map(([c, v]) => [EXPENSE.find((x) => x.id === c)?.label || c, fmt(v), `${Math.round((v / (r0.spent || 1)) * 100)}%`]) : [['Is mahine koi kharcha nahi', '', '']]);
   const inc = Object.entries(r0.inCat);
-  if (inc.length) { head('Is mahine aamdani'); table(['Qisam', 'Raqam'], inc.map(([c, v]) => [INCOME.find((x) => x.id === c)?.label || c, fmt(v)])); }
+  if (inc.length) { head(range ? 'Is muddat ki aamdani' : 'Is mahine aamdani'); table(['Qisam', 'Raqam'], inc.map(([c, v]) => [INCOME.find((x) => x.id === c)?.label || c, fmt(v)])); }
 
   head('Logon ka khata');
   const pc = mine.contacts.filter((c) => !c.archived);
@@ -86,9 +90,10 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
     table(['Tareekh', 'Kya hua', 'Raqam', 'Baqi', 'Note'], h.map((x) => [`${x.date} ${x.time || ''}`, TYPES[x.type].label, fmt(Math.abs(x.delta), x.currency), fmt(x.running, x.currency), x.note || '']));
   }
 
-  head('Mere saare len-den');
+  head(range ? `Len-den (${range.label})` : 'Mere saare len-den');
   const acc = (id) => mine.accounts.find((a) => idOf(a) === id);
-  const tx = [...txAll].sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+  const inRange = (d) => !range || (String(d).slice(0, 10) >= range.from && String(d).slice(0, 10) <= range.to);
+  const tx = [...txAll].filter((t) => inRange(t.date)).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
   table(['Tareekh', 'Qisam', 'Kahan / kis se', 'Raqam', 'Note'], tx.length ? tx.map((t) => {
     const a = acc(t.accountId); const cur = a?.currency || 'PKR';
     const who = mine.contacts.find((c) => idOf(c) === t.contactId)?.name;
@@ -100,7 +105,7 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
 
   if (shared?.entries?.length) {
     head(`${other} ke saath khata (sirf mera hissa)`);
-    const rows = shared.entries.filter(visible(me)).map((e) => {
+    const rows = shared.entries.filter(visible(me)).filter((e) => inRange(e.date)).map((e) => {
       const v = view(e, me, names);
       const st = e.type === 'payment' ? (e.calc.left > 0 ? `${fmt(e.calc.left)} advance` : 'lag gaye') : e.calc.status === 'clear' ? 'clear' : e.calc.status === 'personal' ? 'apna' : `${fmt(e.calc.left)} baqi`;
       return [`${e.date} ${e.time || ''}`, e.note || catOf(e.type === 'expense' ? e.category : e.type).label, v.line, fmt(v.amount), st];
@@ -113,7 +118,7 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
     doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
     doc.text(`Dosti Khata by EZOX  |  Safha ${i} / ${pages}`, 40, doc.internal.pageSize.getHeight() - 20);
   }
-  const file = `mera-hisaab-${new Date().toISOString().slice(0, 10)}.pdf`;
+  const file = range ? `mera-hisaab-${range.from}-se-${range.to}.pdf` : `mera-hisaab-${new Date().toISOString().slice(0, 10)}.pdf`;
   const blob = doc.output('blob');
   // Phone par: share sheet (WhatsApp / Files / Claude), warna download
   try {

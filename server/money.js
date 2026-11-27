@@ -180,3 +180,50 @@ export function effectiveRates(prefs = {}, live = {}) {
   }
   return out;
 }
+
+// ---------------- Kisi bhi muddat (from..to, dono shamil) ka hisaab ----------------
+export const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+export const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5) + 1;
+
+export function rangeReport(txns, accounts, from, to, rates = {}, shared = []) {
+  const cur = Object.fromEntries(accounts.map((a) => [idOf(a), a.currency || 'PKR']));
+  const sum = (f, t) => {
+    const r = { spent: 0, income: 0, khata: 0, byCat: {}, inCat: {}, byDay: {}, inDay: {}, count: 0, top: [], lent: 0, gotBack: 0, borrowed: 0, paidBack: 0 };
+    const inR = (d) => { const s = String(d).slice(0, 10); return s >= f && s <= t; };
+    const addSpend = (x, v, cat) => {
+      r.spent += v; r.count++;
+      r.byCat[cat] = round((r.byCat[cat] || 0) + v);
+      r.byDay[x.date] = round((r.byDay[x.date] || 0) + v);
+      r.top.push({ ...x, pkr: round(v) });
+    };
+    for (const s of shared) if (inR(s.date)) { const v = Number(s.amount) || 0; r.khata += v; addSpend({ ...s, type: 'expense' }, v, s.category); }
+    for (const x of txns) {
+      if (!inR(x.date) || x.synthetic) continue;
+      const v = toPKR(x.amount, cur[x.accountId] || 'PKR', rates);
+      if (v == null) continue;
+      if (x.type === 'expense') addSpend(x, v, x.category || 'other');
+      else if (x.type === 'income') {
+        r.income += v;
+        r.inCat[x.category || 'other_in'] = round((r.inCat[x.category || 'other_in'] || 0) + v);
+        r.inDay[x.date] = round((r.inDay[x.date] || 0) + v);
+      } else if (x.type === 'lend') r.lent += v;
+      else if (x.type === 'got_back') r.gotBack += v;
+      else if (x.type === 'borrow') r.borrowed += v;
+      else if (x.type === 'paid_back') r.paidBack += v;
+    }
+    for (const k of ['spent', 'income', 'khata', 'lent', 'gotBack', 'borrowed', 'paidBack']) r[k] = round(r[k]);
+    r.top.sort((a, b) => b.pkr - a.pkr); r.top = r.top.slice(0, 5);
+    return r;
+  };
+  const days = daysBetween(from, to);
+  const now = sum(from, to);
+  const pFrom = addDays(from, -days); const pTo = addDays(from, -1);
+  const prev = sum(pFrom, pTo);
+  return {
+    from, to, days, ...now,
+    saved: round(now.income - now.spent),
+    perDay: Math.round(now.spent / days),
+    prev: { from: pFrom, to: pTo, spent: prev.spent, income: prev.income, byDay: prev.byDay },
+    change: prev.spent > 0 ? Math.round(((now.spent - prev.spent) / prev.spent) * 100) : null,
+  };
+}

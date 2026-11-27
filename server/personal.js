@@ -52,6 +52,7 @@ const COLS = {
         const to = b.toAmount == null || b.toAmount === '' ? amount : round(b.toAmount);
         if (!(to > 0)) throw bad('Pohanchne wali raqam sahi likho.');
         out.toAmount = to;
+        if (Number(b.rate) > 0 && Number(b.rate) < 1e7) out.rate = round(b.rate);
       }
       if (['lend', 'borrow', 'got_back', 'paid_back'].includes(type)) {
         out.contactId = str(b.contactId, 64);
@@ -66,7 +67,8 @@ const COLS = {
       const rates = {};
       for (const c of CURRENCIES) if (c !== 'PKR' && Number(b.rates?.[c]) > 0) rates[c] = round(b.rates[c]);
       const manual = Array.isArray(b.manual) ? CURRENCIES.filter((c) => c !== 'PKR' && b.manual.includes(c)) : [];
-      return { rates, manual };
+      const budget = Number(b.budget) > 0 && Number(b.budget) < 1e10 ? Math.round(Number(b.budget)) : 0;
+      return { rates, manual, budget };
     },
   },
   // Dosti khata ki entry kis account se gayi / mein aayi (sirf aap ko pata)

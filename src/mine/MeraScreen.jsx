@@ -1,9 +1,12 @@
 // "Mera Hisaab": apna paisa, apna kharcha, logon ka khata. Sirf aap ko dikhta hai.
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, HandCoins, ChevronRight, FileDown, TrendingDown, TrendingUp, Lock, Search, X, MessageCircle, PiggyBank, CalendarDays, Users, Flame } from 'lucide-react';
+import { Plus, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, HandCoins, ChevronRight, FileDown, TrendingDown, TrendingUp, Lock, Search, X, MessageCircle, PiggyBank, Users, Flame, Gauge, Target } from 'lucide-react';
 import { idOf, toPKR } from '../../server/money.js';
-import { dayLabel, monthName, monthShort, shortDay, thisMonth, timeLabel } from '../lib';
+import { dayLabel, monthName, monthShort, shortDay, thisMonth, timeLabel, today } from '../lib';
+import PeriodBar from './PeriodBar';
+import { Donut, Bars, PaceLine, CAT_COLORS, OTHER_COLOR } from './charts';
+import { buckets, fmtDay, periodOf, isCurrent, addDays, daysBetween, weekday, WD } from './period';
 import { catMeta, kindMeta, money, EXPENSE, INCOME, KINDS, TYPES } from './meta';
 
 export function TxnRow({ t, accounts, contacts, onOpen, i = 0, otherName = 'Dost' }) {
@@ -16,10 +19,10 @@ export function TxnRow({ t, accounts, contacts, onOpen, i = 0, otherName = 'Dost
   const sign = t.type === 'transfer' ? 0 : t.type === 'adjust' ? Math.sign(t.amount) : TYPES[t.type]?.sign;
   const khataTitle = { expense: `${otherName} ke saath kharcha`, payment: t.type === 'khata_out' ? `${otherName} ko bheje` : `${otherName} se mile`, loan: t.type === 'khata_out' ? `${otherName} ko qarz` : `${otherName} se qarz` }[t.khataType];
   const title = t.note || (t.synthetic ? khataTitle : t.type === 'expense' || t.type === 'income' ? m.label : `${TYPES[t.type].label}${who ? `: ${who.name}` : ''}`);
-  const sub = t.type === 'transfer' ? `${acc?.name || '?'} se ${to?.name || '?'}` : t.synthetic ? `Dosti khata, ${acc?.name || '?'}` : [who && t.note ? who.name : null, acc?.name, !acc && t.contactId ? 'Purana hisaab' : null].filter(Boolean).join(', ');
+  const sub = t.type === 'transfer' ? `${acc?.name || '?'} se ${to?.name || '?'}${t.rate ? `, rate ${t.rate}` : ''}` : t.synthetic ? `Dosti khata, ${acc?.name || '?'}` : [who && t.note ? who.name : null, acc?.name, !acc && t.contactId ? 'Purana hisaab' : null].filter(Boolean).join(', ');
   return (
     <motion.button className="entry" onClick={() => onOpen(t)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.02 }}>
-      <span className={'entry-icon m-' + (sign > 0 ? 'in' : sign < 0 ? 'out' : 'mv')}><Icon size={18} /></span>
+      <span className={'entry-icon m-' + (['lend', 'borrow', 'got_back', 'paid_back'].includes(t.type) ? 'loan' : sign > 0 ? 'in' : sign < 0 ? 'out' : 'mv')}><Icon size={18} /></span>
       <span className="entry-main">
         <span className="entry-title">{title}{t.pending && <span className="edited-tag">sync baqi</span>}</span>
         <span className="entry-sub"><span className="entry-time">{timeLabel(t)}</span>{sub}</span>
@@ -66,12 +69,14 @@ export function RateLine({ accounts, rates, live, prefs, onRates, light }) {
   );
 }
 
-function AccCard({ a, b, rates, onOpen }) {
+function AccCard({ a, b, rates, onOpen, i = 0 }) {
   const K = kindMeta(a.kind).icon;
   const pkr = a.currency !== 'PKR' ? toPKR(b, a.currency, rates) : null;
   return (
-    <motion.button className="acc-card" whileTap={{ scale: 0.97 }} onClick={() => onOpen(a)}>
-      <span className="acc-top"><K size={17} /> {a.name}</span>
+    <motion.button className={'acc-tile k-' + (a.kind || 'other')} whileTap={{ scale: 0.97 }} onClick={() => onOpen(a)}
+      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
+      <span className="acc-ic"><K size={18} /></span>
+      <span className="acc-name">{a.name}</span>
       <b className={b < 0 ? 'neg' : ''}>{money(b, a.currency)}</b>
       <small>{pkr != null ? `≈ ${money(pkr)}` : a.currency !== 'PKR' ? 'rate nahi' : kindMeta(a.kind).label}</small>
     </motion.button>
@@ -91,7 +96,7 @@ function EmptyMera({ onNewAccount, otherName }) {
 }
 
 /* ---------------- Home ---------------- */
-export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe, rates, live, otherName, onAdd, onOpenAccount, onOpenTxn, onNewAccount, onRates, onAll, onGo }) {
+export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe, rates, live, otherName, budget, onAdd, onOpenAccount, onOpenTxn, onNewAccount, onRates, onAll, onGo }) {
   const accounts = mine.accounts.filter((a) => !a.archived);
   const recent = useMemo(() => [...allTx].sort(sortTx).slice(0, 8), [allTx]);
   if (!accounts.length) return <EmptyMera onNewAccount={onNewAccount} otherName={otherName} />;
@@ -108,19 +113,24 @@ export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe,
           <button onClick={() => onGo('people')}><span>Logon par</span><b>{money(owedToMe)}</b></button>
           <button onClick={() => onGo('people')}><span>Aap par</span><b>{money(iOwe)}</b></button>
         </div>
-        <div className="quick4">
+        <div className="quick4 colored">
           {[
-            ['expense', 'Kharcha', ArrowUpRight], ['income', 'Aamdani', ArrowDownLeft], ['transfer', 'Transfer', ArrowLeftRight], ['lend', 'Qarz', HandCoins],
-          ].map(([t, l, I]) => (
-            <motion.button key={t} whileTap={{ scale: 0.94 }} onClick={() => onAdd(t)}><span><I size={19} /></span>{l}</motion.button>
+            ['expense', 'Kharcha', ArrowUpRight, 'q-out'], ['income', 'Aamdani', ArrowDownLeft, 'q-in'], ['transfer', 'Transfer', ArrowLeftRight, 'q-mv'], ['lend', 'Qarz', HandCoins, 'q-loan'],
+          ].map(([t, l, I, c]) => (
+            <motion.button key={t} className={c} whileTap={{ scale: 0.94 }} onClick={() => onAdd(t)}><span><I size={20} strokeWidth={2.3} /></span>{l}</motion.button>
           ))}
         </div>
       </section>
 
-      <div className="acc-row">
-        {accounts.map((a) => <AccCard key={idOf(a)} a={a} b={balances[idOf(a)] || 0} rates={rates} onOpen={onOpenAccount} />)}
-        <button className="acc-card add" onClick={onNewAccount}><Plus size={20} /> Naya account</button>
-      </div>
+      <section className="home-accs">
+        <header className="block-head">
+          <h2>Accounts</h2>
+          <button className="text-btn" onClick={onNewAccount}><Plus size={16} /> Naya</button>
+        </header>
+        <div className="acc-grid">
+          {accounts.map((a, i) => <AccCard key={idOf(a)} a={a} i={i} b={balances[idOf(a)] || 0} rates={rates} onOpen={onOpenAccount} />)}
+        </div>
+      </section>
 
       <motion.button className="month-mini" whileTap={{ scale: 0.98 }} onClick={() => onGo('analytics')}>
         <span className="mm-head"><b>{monthName(report.month)}</b><span>Analytics <ChevronRight size={15} /></span></span>
@@ -129,6 +139,12 @@ export function MeraHome({ mine, allTx, balances, report, worth, owedToMe, iOwe,
           <span><small>Aamdani</small><b className="pos">{money(report.income)}</b></span>
           <span><small>Bacha</small><b className={report.saved < 0 ? 'neg' : 'pos'}>{money(report.saved)}</b></span>
         </span>
+        {budget > 0 && (
+          <span className="mm-budget">
+            <span className="b-bar"><motion.i className={report.spent > budget ? 'over' : report.spent > budget * 0.8 ? 'warn' : ''} initial={{ width: 0 }} animate={{ width: Math.min(100, (report.spent / budget) * 100) + '%' }} /></span>
+            <small>{report.spent > budget ? `Budget se ${money(report.spent - budget)} upar` : `Budget ${money(budget)} mein se ${money(budget - report.spent)} baqi`}</small>
+          </span>
+        )}
         {report.khata > 0 && <span className="mm-note">Kharche mein {otherName} wale khate ka aap ka hissa {money(report.khata)} bhi shamil hai</span>}
       </motion.button>
 
@@ -167,7 +183,7 @@ export function MeraAccounts({ mine, balances, worth, rates, live, otherName, on
               const share = worth.pkr > 0 ? Math.max(0, Math.min(100, ((pkr ?? (a.currency === 'PKR' ? b : 0)) / worth.pkr) * 100)) : 0;
               return (
                 <motion.button key={idOf(a)} className="entry acc-line" whileTap={{ scale: 0.98 }} onClick={() => onOpenAccount(a)}>
-                  <span className="entry-icon m-mv"><K size={18} /></span>
+                  <span className={'entry-icon acc-ic k-' + (a.kind || 'other')}><K size={18} /></span>
                   <span className="entry-main">
                     <span className="entry-title">{a.name}</span>
                     <span className="acc-share"><motion.i initial={{ width: 0 }} animate={{ width: share + '%' }} /></span>
@@ -182,87 +198,132 @@ export function MeraAccounts({ mine, balances, worth, rates, live, otherName, on
           </div>
         </section>
       ))}
-      <button className="btn ghost wide" onClick={onNewAccount}><Plus size={18} /> Naya account</button>
+      <button className="btn ghost wide acc-new" onClick={onNewAccount}><Plus size={18} /> Naya account</button>
     </div>
   );
 }
 
 /* ---------------- Analytics ---------------- */
-export function MeraAnalytics({ mine, report, month, setMonth, reportFor, otherName, onPdf }) {
-  const months = useMemo(() => {
-    const set = new Set([thisMonth(), ...mine.ptx.map((t) => String(t.date).slice(0, 7))]);
-    return [...set].sort().reverse();
-  }, [mine.ptx]);
-  const cats = Object.entries(report.byCat).sort((a, b) => b[1] - a[1]);
-  const maxCat = cats[0]?.[1] || 1;
-  const inc = Object.entries(report.inCat).sort((a, b) => b[1] - a[1]);
-  const [y, m] = month.split('-').map(Number);
-  const daysIn = new Date(y, m, 0).getDate();
-  const days = Array.from({ length: daysIn }, (_, i) => { const d = `${month}-${String(i + 1).padStart(2, '0')}`; return { d, v: report.byDay[d] || 0 }; });
-  const maxDay = Math.max(1, ...days.map((d) => d.v));
+const inPKR = (t, accounts, rates) => toPKR(Math.abs(t.amount), accounts.find((a) => idOf(a) === t.accountId)?.currency || 'PKR', rates);
+export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, reportFor, budget, onBudget, otherName, onPdf, minDate }) {
+  const r = reportRange(period);
+  const t = today();
+  const bk = useMemo(() => buckets(period, minDate), [period, minDate]);
+  const bars = bk.map((b) => {
+    let v = 0; for (const [d, x] of Object.entries(r.byDay)) if (d >= b.from && d <= b.to) v += x;
+    return { key: b.key, label: b.label, v: Math.round(v), title: b.from === b.to ? dayLabel(b.from) : `${fmtDay(b.from)} – ${fmtDay(b.to)}` };
+  });
+  const daily = bk.length && bk[0].from === bk[0].to;
+  const cats = Object.entries(r.byCat).sort((a, b) => b[1] - a[1]);
+  const donut = cats.slice(0, cats.length > 6 ? 5 : 6).map(([id, v], i) => ({ id, v, label: (EXPENSE.find((x) => x.id === id) || EXPENSE.at(-1)).label, color: CAT_COLORS[i] }));
+  if (cats.length > 6) donut.push({ id: 'baqi', label: 'Baqi sab', v: cats.slice(5).reduce((a, [, v]) => a + v, 0), color: OTHER_COLOR });
+  const inc = Object.entries(r.inCat).sort((a, b) => b[1] - a[1]);
+  // Raftar: jama hota kharcha (din ba din)
+  const pace = useMemo(() => {
+    if (r.days > 62 || period.kind === 'all') return null;
+    const now = []; const prev = []; let a = 0, b = 0;
+    for (let i = 0; i < r.days; i++) {
+      const d = addDays(r.from, i); const pd = addDays(r.prev.from, i);
+      b += r.prev.byDay[pd] || 0; prev.push(Math.round(b));
+      if (d <= t) { a += r.byDay[d] || 0; now.push(Math.round(a)); }
+    }
+    return { now, prev };
+  }, [r, period.kind, t]);
+  const wdays = useMemo(() => {
+    const w = Array(7).fill(0);
+    for (const [d, v] of Object.entries(r.byDay)) w[weekday(d)] += v;
+    return WD.map((l, i) => ({ key: String(i), label: l, title: l, v: Math.round(w[i]) }));
+  }, [r.byDay]);
+  const isMonth = period.kind === 'month'; const cur = isCurrent(period);
+  const dayIdx = cur ? daysBetween(r.from, t) : r.days; const left = r.days - dayIdx;
+  const projection = cur && dayIdx > 2 ? Math.round((r.spent / dayIdx) * r.days) : null;
   const trend = useMemo(() => {
-    const out = []; const d = new Date(y, m - 1, 1);
-    for (let i = 5; i >= 0; i--) { const x = new Date(d.getFullYear(), d.getMonth() - i, 1); const k = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; const r = reportFor(k); out.push({ k, spent: r.spent, income: r.income }); }
+    const out = []; const base = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1, 1);
+    for (let i = 5; i >= 0; i--) { const x = new Date(base.getFullYear(), base.getMonth() - i, 1); const k = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; const rr = reportFor(k); out.push({ k, spent: rr.spent, income: rr.income }); }
     return out;
-  }, [y, m, reportFor]);
-  const maxT = Math.max(1, ...trend.flatMap((t) => [t.spent, t.income]));
-  const rate = report.income > 0 ? Math.round((report.saved / report.income) * 100) : null;
+  }, [reportFor, t]);
+  const maxT = Math.max(1, ...trend.flatMap((x) => [x.spent, x.income]));
+  const topCat = cats[0];
+  const loans = r.lent || r.gotBack || r.borrowed || r.paidBack;
   return (
     <div className="screen">
       <header className="page-head"><h1>Analytics</h1></header>
-      <div className="scroller">
-        {months.slice(0, 12).map((mm) => <button key={mm} className={'chip' + (mm === month ? ' on' : '')} onClick={() => setMonth(mm)}>{monthShort(mm)}</button>)}
-      </div>
+      <PeriodBar period={period} setPeriod={setPeriod} onPick={onPick} />
 
-      <section className="panel">
-        <header className="panel-head"><h2>{monthName(month)}</h2></header>
+      <section className="panel a-sum">
+        <div className="a-big">
+          <span>Kharcha</span>
+          <motion.b key={r.spent} initial={{ opacity: 0.3, y: 6 }} animate={{ opacity: 1, y: 0 }}>{money(r.spent)}</motion.b>
+          {r.change != null && <em className={r.change > 0 ? 'up' : 'down'}>{r.change > 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />} {Math.abs(r.change)}% {r.change > 0 ? 'zyada' : 'kam'} pichli dafa se</em>}
+        </div>
         <div className="mstats">
-          <div><span>Kharcha</span><b>{money(report.spent)}</b></div>
-          <div><span>Aamdani</span><b className="pos">{money(report.income)}</b></div>
-          <div><span>Bacha</span><b className={report.saved < 0 ? 'neg' : 'pos'}>{money(report.saved)}</b></div>
+          <div><span>Aamdani</span><b className="pos">{money(r.income)}</b></div>
+          <div><span>Bacha</span><b className={r.saved < 0 ? 'neg' : 'pos'}>{money(r.saved)}</b></div>
+          <div><span>Roz ka avg</span><b>{money(r.perDay)}</b></div>
         </div>
         <div className="insights">
-          {rate != null && <p><PiggyBank size={16} /> Aamdani ka <b>{rate}%</b> {rate >= 0 ? 'bacha' : 'zyada kharch hua'}</p>}
-          {report.change != null && (
-            <p className={report.change > 0 ? 'up' : 'down'}>
-              {report.change > 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-              {monthName(report.prev.month).split(' ')[0]} se <b>{Math.abs(report.change)}%</b> {report.change > 0 ? 'zyada' : 'kam'} kharcha
-            </p>
-          )}
-          {report.spent > 0 && <p><CalendarDays size={16} /> Roz ka average <b>{money(report.perDay)}</b></p>}
-          {report.khata > 0 && <p><Users size={16} /> {otherName} wale khate ka aap ka hissa <b>{money(report.khata)}</b></p>}
-          {report.biggest && <p><Flame size={16} /> Sab se bara: <b>{report.biggest.note || catMeta(report.biggest).label}, {money(report.biggest.pkr)}</b></p>}
+          {topCat && <p><Flame size={16} /> Sab se zyada <b>{(EXPENSE.find((x) => x.id === topCat[0]) || EXPENSE.at(-1)).label}</b> par: {Math.round((topCat[1] / r.spent) * 100)}%</p>}
+          {r.income > 0 && <p><PiggyBank size={16} /> Aamdani ka <b>{Math.round((r.saved / r.income) * 100)}%</b> {r.saved >= 0 ? 'bacha' : 'zyada kharch hua'}</p>}
+          {projection != null && <p><Gauge size={16} /> Is raftar se {isMonth ? 'mahina' : 'ye muddat'} <b>{money(projection)}</b> par khatam hogi</p>}
+          {r.khata > 0 && <p><Users size={16} /> Is mein {otherName} wale khate ka hissa <b>{money(r.khata)}</b></p>}
         </div>
-        {report.spent > 0 && (
-          <>
-            <div className="day-chart" role="img" aria-label="Roz ka kharcha">
-              {days.map((d, i) => (
-                <motion.span key={d.d} className={d.v ? 'has mine' : ''} title={`${shortDay(d.d)}: ${money(d.v)}`}
-                  initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: i * 0.01, type: 'spring', stiffness: 200, damping: 22 }}
-                  style={{ height: Math.max(3, (d.v / maxDay) * 100) + '%' }} />
-              ))}
-            </div>
-            <div className="chart-axis"><span>1</span><span>{Math.ceil(daysIn / 2)}</span><span>{daysIn}</span></div>
-          </>
-        )}
-        {report.spent === 0 && report.income === 0 && <p className="muted">Is mahine abhi kuch nahi likha.</p>}
       </section>
 
-      {cats.length > 0 && (
+      {isMonth && (
+        budget > 0 ? (
+          <section className="panel budget">
+            <header className="panel-head row2"><h2>Budget</h2><button className="text-btn" onClick={onBudget}>Badlo</button></header>
+            <div className="b-bar"><motion.i className={r.spent > budget ? 'over' : r.spent > budget * 0.8 ? 'warn' : ''} initial={{ width: 0 }} animate={{ width: Math.min(100, (r.spent / budget) * 100) + '%' }} /></div>
+            <p className="b-line"><b>{money(r.spent)}</b> / {money(budget)} ({Math.round((r.spent / budget) * 100)}%)</p>
+            {r.spent > budget ? <p className="b-msg over">Budget se {money(r.spent - budget)} zyada ho gaya. Ab hath rok lo.</p>
+              : cur ? <p className="b-msg">{money(budget - r.spent)} baqi. {left > 0 ? <>Agle {left} din mein roz <b>{money(Math.floor((budget - r.spent) / left))}</b> tak chala sakte ho.</> : null}</p>
+                : <p className="b-msg">{money(budget - r.spent)} bach gaye. Shabash.</p>}
+            {projection != null && projection > budget && r.spent <= budget && <p className="b-msg warn">Dhyan: is raftar se mahina budget se {money(projection - budget)} upar jayega.</p>}
+          </section>
+        ) : (
+          <button className="panel budget-cta" onClick={onBudget}><Target size={20} /><span><b>Mahine ka budget rakho</b><small>Pata chalta rahega kitna baqi hai aur roz kitna chala sakte ho</small></span><ChevronRight size={18} /></button>
+        )
+      )}
+
+      {r.spent === 0 && r.income === 0 ? <div className="empty"><p>Is muddat mein kuch nahi likha.</p></div> : null}
+
+      {pace && r.spent > 0 && (
+        <section className="panel">
+          <header className="panel-head"><h2>Kharche ki raftar</h2><p className="muted">Din ba din jama hota kharcha, pichli dafa ke muqable</p></header>
+          <PaceLine now={pace.now} prev={pace.prev} limit={isMonth ? budget : 0} labels={[fmtDay(r.from), fmtDay(r.to)]} />
+        </section>
+      )}
+
+      {r.spent > 0 && (
+        <section className="panel">
+          <header className="panel-head"><h2>{daily ? 'Roz ka kharcha' : bk.length && daysBetween(bk[0].from, bk[0].to) > 7 ? 'Har mahine ka kharcha' : 'Har hafte ka kharcha'}</h2></header>
+          <Bars data={bars} avg={bars.length > 1 ? Math.round(bars.reduce((a, b) => a + b.v, 0) / bars.length) : 0} highlight={daily ? t : null} />
+        </section>
+      )}
+
+      {donut.length > 0 && (
         <section className="panel">
           <header className="panel-head"><h2>Kis cheez par kharcha</h2></header>
-          <div className="cats">
-            {cats.map(([id, v]) => {
-              const c = EXPENSE.find((x) => x.id === id) || EXPENSE.at(-1); const I = c.icon;
-              return (
-                <div key={id} className="cat-row">
-                  <I size={17} /><span className="cat-name">{c.label}</span>
-                  <span className="cat-bar"><motion.i className="mine" initial={{ width: 0 }} animate={{ width: (v / maxCat) * 100 + '%' }} /></span>
-                  <b>{money(v)}</b><small className="cat-pct">{Math.round((v / report.spent) * 100)}%</small>
-                </div>
-              );
+          <Donut items={donut} total={r.spent} centerLabel="Kul kharcha" />
+        </section>
+      )}
+
+      {r.days >= 7 && r.spent > 0 && (
+        <section className="panel">
+          <header className="panel-head"><h2>Kis din zyada kharcha</h2><p className="muted">Hafte ke har din ka jama</p></header>
+          <Bars data={wdays} height={130} color="#E0A021" />
+        </section>
+      )}
+
+      {r.top.length > 0 && (
+        <section className="panel">
+          <header className="panel-head"><h2>Sab se bare kharche</h2></header>
+          <ol className="top-list">
+            {r.top.map((x, i) => {
+              const c = EXPENSE.find((e) => e.id === (x.category || 'other')) || EXPENSE.at(-1); const I = c.icon;
+              return <li key={i}><span className="entry-icon m-out"><I size={16} /></span><span className="tl-main"><b>{x.note || c.label}</b><small>{dayLabel(x.date)}{x.khata ? `, ${otherName} khata` : ''}</small></span><b>{money(x.pkr)}</b></li>;
             })}
-          </div>
+          </ol>
         </section>
       )}
 
@@ -276,7 +337,7 @@ export function MeraAnalytics({ mine, report, month, setMonth, reportFor, otherN
                 <div key={id} className="cat-row">
                   <I size={17} /><span className="cat-name">{c.label}</span>
                   <span className="cat-bar"><motion.i className="inc" initial={{ width: 0 }} animate={{ width: (v / inc[0][1]) * 100 + '%' }} /></span>
-                  <b>{money(v)}</b><small className="cat-pct">{Math.round((v / report.income) * 100)}%</small>
+                  <b>{money(v)}</b><small className="cat-pct">{Math.round((v / r.income) * 100)}%</small>
                 </div>
               );
             })}
@@ -284,25 +345,106 @@ export function MeraAnalytics({ mine, report, month, setMonth, reportFor, otherN
         </section>
       )}
 
+      {loans ? (
+        <section className="panel">
+          <header className="panel-head"><h2>Qarz is muddat mein</h2></header>
+          <div className="mstats four">
+            <div><span>Diya</span><b>{money(r.lent)}</b></div><div><span>Wapas mila</span><b className="pos">{money(r.gotBack)}</b></div>
+            <div><span>Liya</span><b>{money(r.borrowed)}</b></div><div><span>Lautaya</span><b>{money(r.paidBack)}</b></div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="panel">
-        <header className="panel-head"><h2>6 mahine</h2><span className="legend"><i className="l-out" /> Kharcha <i className="l-in" /> Aamdani</span></header>
+        <header className="panel-head row2"><h2>Pichle 6 mahine</h2><span className="legend"><i className="l-out" /> Kharcha <i className="l-in" /> Aamdani</span></header>
         <div className="trend">
-          {trend.map((t) => (
-            <button key={t.k} className={'trend-col' + (t.k === month ? ' on' : '')} onClick={() => setMonth(t.k)}>
+          {trend.map((x) => (
+            <button key={x.k} className={'trend-col' + (period.kind === 'month' && period.from.startsWith(x.k) ? ' on' : '')} onClick={() => setPeriod(periodOf('month', x.k + '-01'))}>
               <span className="trend-bars">
-                <motion.i className="t-out" initial={{ height: 0 }} animate={{ height: (t.spent / maxT) * 100 + '%' }} />
-                <motion.i className="t-in" initial={{ height: 0 }} animate={{ height: (t.income / maxT) * 100 + '%' }} />
+                <motion.i className="t-out" initial={{ height: 0 }} animate={{ height: (x.spent / maxT) * 100 + '%' }} />
+                <motion.i className="t-in" initial={{ height: 0 }} animate={{ height: (x.income / maxT) * 100 + '%' }} />
               </span>
-              <small>{monthShort(t.k)}</small>
+              <small>{monthShort(x.k)}</small>
             </button>
           ))}
         </div>
       </section>
 
       <div className="mera-foot">
-        <button className="btn ghost wide" onClick={onPdf}><FileDown size={18} /> Poora hisaab PDF mein</button>
+        <button className="btn ghost wide" onClick={() => onPdf(period)}><FileDown size={18} /> Is muddat ki PDF</button>
         <p className="hint center">PDF ko Claude ya ChatGPT ko de kar mashwara le sakte hain.</p>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- Len-den (saare transactions) ---------------- */
+const IN_T = ['income', 'borrow', 'got_back', 'khata_in'];
+const OUT_T = ['expense', 'lend', 'paid_back', 'khata_out'];
+export function MeraTxns({ mine, allTx, rates, period, setPeriod, onPick, onOpen, otherName, onPdf }) {
+  const [q, setQ] = useState('');
+  const [type, setType] = useState('all');
+  const [acc, setAcc] = useState('all');
+  const list = useMemo(() => {
+    const ql = q.trim().toLowerCase();
+    return [...allTx].sort(sortTx).filter((t) => {
+      if (t.date < period.from || t.date > period.to) return false;
+      if (type === 'khata' ? !t.synthetic : type !== 'all' && !(type === 'loan' ? ['lend', 'borrow', 'got_back', 'paid_back'].includes(t.type) : t.type === type)) return false;
+      if (acc !== 'all' && t.accountId !== acc && t.toAccountId !== acc) return false;
+      if (!ql) return true;
+      const who = mine.contacts.find((c) => idOf(c) === t.contactId)?.name || '';
+      return [t.note, catMeta(t).label, who, String(Math.round(Math.abs(t.amount)))].join(' ').toLowerCase().includes(ql);
+    });
+  }, [allTx, mine.contacts, q, type, acc, period]);
+  const tot = useMemo(() => {
+    let i = 0, o = 0;
+    for (const t of list) {
+      const v = inPKR(t, mine.accounts, rates) || 0;
+      if (IN_T.includes(t.type) || (t.type === 'adjust' && t.amount > 0)) i += v;
+      else if (OUT_T.includes(t.type) || (t.type === 'adjust' && t.amount < 0)) o += v;
+    }
+    return { i: Math.round(i), o: Math.round(o) };
+  }, [list, mine.accounts, rates]);
+  const dayNet = (items) => {
+    let n = 0;
+    for (const t of items) { const v = inPKR(t, mine.accounts, rates) || 0; if (IN_T.includes(t.type)) n += v; else if (OUT_T.includes(t.type)) n -= v; else if (t.type === 'adjust') n += Math.sign(t.amount) * v; }
+    return Math.round(n);
+  };
+  return (
+    <div className="screen">
+      <header className="page-head row">
+        <div><h1>Len-den</h1><p className="muted">{list.length} entries</p></div>
+        <button className="btn ghost small-g" onClick={() => onPdf(period)}><FileDown size={16} /> PDF</button>
+      </header>
+      <PeriodBar period={period} setPeriod={setPeriod} onPick={onPick} withAll />
+      <div className="tx-tot">
+        <div><span>Aaye</span><b className="pos">+{money(tot.i).replace('Rs ', 'Rs ')}</b></div>
+        <div><span>Gaye</span><b className="neg">−{money(tot.o)}</b></div>
+        <div><span>Farq</span><b className={tot.i - tot.o < 0 ? 'neg' : 'pos'}>{money(tot.i - tot.o)}</b></div>
+      </div>
+      <label className="search">
+        <Search size={19} className="s-icon" />
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Dhoondo: bijli, Ali, 5000..." />
+        {q && <button className="icon-btn s-clear" onClick={() => setQ('')} aria-label="Saaf karo"><X size={17} /></button>}
+      </label>
+      <div className="scroller">
+        {[['all', 'Sab'], ['expense', 'Kharche'], ['income', 'Aamdani'], ['transfer', 'Transfer'], ['loan', 'Qarz'], ['khata', otherName]].map(([id, l]) => (
+          <button key={id} className={'chip ghost' + (type === id ? ' on' : '')} onClick={() => setType(id)}>{l}</button>
+        ))}
+      </div>
+      <div className="scroller">
+        <button className={'chip' + (acc === 'all' ? ' on' : '')} onClick={() => setAcc('all')}>Sab accounts</button>
+        {mine.accounts.filter((a) => !a.archived).map((a) => <button key={idOf(a)} className={'chip' + (acc === idOf(a) ? ' on' : '')} onClick={() => setAcc(idOf(a))}>{a.name}</button>)}
+      </div>
+      {list.length === 0 ? <div className="empty"><p>Is muddat mein kuch nahi mila.</p></div> : groupByDay(list).map((g) => {
+        const n = dayNet(g.items);
+        return (
+          <section key={g.day} className="day-group">
+            <h3><span>{dayLabel(g.day)}</span>{n !== 0 && <span className={n < 0 ? 'neg' : 'pos'}>{n > 0 ? '+' : '−'}{money(Math.abs(n)).replace('Rs ', '')}</span>}</h3>
+            <div className="entries">{g.items.map((t, i) => <TxnRow key={idOf(t)} t={t} i={i} accounts={mine.accounts} contacts={mine.contacts} otherName={otherName} onOpen={onOpen} />)}</div>
+          </section>
+        );
+      })}
     </div>
   );
 }

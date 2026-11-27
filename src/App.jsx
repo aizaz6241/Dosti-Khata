@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, RefreshCw, History, Mic, ArrowDownLeft, ArrowLeftRight, CalendarDays, Landmark, Users, Undo2 } from 'lucide-react';
-import { api, LS, thisMonth, haptic, nowTime } from './lib';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, RefreshCw, History, Mic, ArrowDownLeft, ArrowLeftRight, CalendarDays, Landmark, Users, Undo2, Grip, ListOrdered, FileDown, Target, Coins, UserRound } from 'lucide-react';
+import { api, LS, thisMonth, haptic, nowTime, today } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
 import { useKhata, applyQueue, applyMine, newId } from './sync';
-import { accountBalances, peopleLedger, netWorth, monthReport, toPKR, idOf, sharedSpend, khataFlows, effectiveRates, flowOf } from '../server/money.js';
-import { MeraHome, MeraAccounts, MeraAnalytics, MeraPeople, AllTxns, AccountDetail, ContactDetail } from './mine/MeraScreen';
+import { accountBalances, peopleLedger, netWorth, monthReport, toPKR, idOf, sharedSpend, khataFlows, effectiveRates, flowOf, rangeReport } from '../server/money.js';
+import { MeraHome, MeraAccounts, MeraAnalytics, MeraPeople, MeraTxns, AccountDetail, ContactDetail } from './mine/MeraScreen';
+import RangePicker from './mine/RangePicker';
+import { periodOf, periodLabel } from './mine/period';
 import AccountLink from './mine/AccountLink';
 import ModeSwitch from './components/ModeSwitch';
 import { TxnForm, AccountForm, ContactForm, RatesForm } from './mine/forms';
@@ -21,6 +23,23 @@ import VoiceEntry from './components/VoiceEntry';
 import BatchReview, { itemOk } from './components/BatchReview';
 
 const COLORS = { aizaz: '#3D52D5', abdullah: '#D4931A' };
+const money0 = (n) => 'Rs ' + Math.round(n).toLocaleString('en-PK');
+
+function BudgetForm({ value, spent, onSave }) {
+  const [v, setV] = useState(value ? String(value) : '');
+  const n = Number(v) || 0;
+  return (
+    <form className="form" onSubmit={(e) => { e.preventDefault(); onSave(n); }}>
+      <p className="hint">Har mahine zyada se zyada kitna kharch karna hai? App batata rahega kitna baqi hai, roz kitna chala sakte ho, aur had paar ho to khabardar karega.</p>
+      <label className="custom-one big"><span>Mahine ka budget (Rs)</span><input inputMode="numeric" autoFocus value={v} placeholder="jaise 40000" onChange={(e) => setV(e.target.value.replace(/[^\d]/g, ''))} /></label>
+      {n > 0 && <p className="preview live">Is mahine ab tak {money0(spent)} kharch hue: {spent > n ? `budget se ${money0(spent - n)} upar` : `${money0(n - spent)} baqi`}</p>}
+      <div className="form-actions">
+        {value > 0 && <button type="button" className="btn ghost" onClick={() => onSave(0)}>Budget hatao</button>}
+        <button className="btn primary" disabled={!n && !value}>Save karo</button>
+      </div>
+    </form>
+  );
+}
 const DEFAULT_PEOPLE = [{ id: 'aizaz', name: 'Aizaz' }, { id: 'abdullah', name: 'Abdullah' }];
 
 export default function App() {
@@ -82,7 +101,9 @@ export default function App() {
     return { people, me, rows, ...ledger, entries, activity, stats: monthStats(rows, ids, month), homeStats: monthStats(rows, ids, thisMonth()), months };
   }, [sync.rows, sync.activity, sync.queue, me, ids, people, month]);
   const [seenAct, setSeenAct] = useState(LS.get('khata.seenAct', 0));
-  const [meraMonth, setMeraMonth] = useState(thisMonth());
+  const [meraMonth] = useState(thisMonth());
+  const [aPeriod, setAPeriod] = useState(() => periodOf('month')); // analytics ki muddat
+  const [tPeriod, setTPeriod] = useState(() => periodOf('month')); // len-den ki muddat
 
   // Mera Hisaab: phone par hi hisaab (offline bhi). Dosti khata bhi is mein gina jata hai.
   const mera = useMemo(() => {
@@ -104,7 +125,10 @@ export default function App() {
     if (b?.amount > 0) { if (b.from === me) iOwe += b.amount; else owedToMe += b.amount; }
     const linkOf = Object.fromEntries(mine.links.map((l) => [String(l.entryId), l.accountId]));
     const reportFor = (m) => monthReport(mine.ptx, mine.accounts, m, rates, spend);
-    return { mine, rates, balances, people, worth, owedToMe, iOwe, allTx, spend, linkOf, reportFor, report: reportFor(meraMonth) };
+    const reportRange = (p) => rangeReport(mine.ptx, mine.accounts, p.kind === 'all' ? minDate : p.from, p.kind === 'all' ? today() : p.to, rates, spend);
+    const minDate = [...allTx, ...spend].reduce((m, t) => (t.date && t.date < m ? t.date : m), today());
+    const budget = Number(mine.prefs?.budget) || 0;
+    return { mine, rates, balances, people, worth, owedToMe, iOwe, allTx, spend, linkOf, reportFor, reportRange, minDate, budget, report: reportFor(meraMonth) };
   }, [sync.mine, sync.queue, me, meraMonth, live, data]);
 
   // Live rate (USDT: Binance P2P) — jab koi doosri currency ka account ho
@@ -227,14 +251,18 @@ export default function App() {
   const otherName = names[otherId];
   const goShared = () => { setMode('dosti'); setTabs2((t) => ({ ...t, dosti: 'khata' })); };
   const openTxn = (t) => (t.synthetic ? (byKey[t.entryId] ? open(byKey[t.entryId]) : null) : setSheet({ kind: 'ptx', row: t }));
-  const pdf = async () => {
+  const pdf = async (period) => {
     say('PDF ban raha hai...');
     try {
       const { exportPdf } = await import('./mine/pdf.js');
-      const r = await exportPdf({ name: names[me], mine: mera.mine, balances: mera.balances, people: mera.people, worth: mera.worth, shared: data, me, names, rates: mera.rates, spend: mera.spend, allTx: mera.allTx });
+      const range = period && period.kind !== 'all' ? { from: period.from, to: period.to, label: periodLabel(period) } : null;
+      const r = await exportPdf({ name: names[me], mine: mera.mine, balances: mera.balances, people: mera.people, worth: mera.worth, shared: data, me, names, rates: mera.rates, spend: mera.spend, allTx: mera.allTx, range, reportRange: mera.reportRange });
       if (r !== 'cancel') say(r === 'shared' ? 'PDF tayyar' : 'PDF download ho gaya');
     } catch (e) { say('PDF nahi bana: ' + e.message); }
   };
+  const pickRange = (value, onApply) => setSheet({ kind: 'range', value, onApply });
+  const prefsBase = { rates: mera.mine.prefs?.rates || {}, manual: mera.mine.prefs?.manual || [], budget: Number(mera.mine.prefs?.budget) || 0 };
+  const savePrefs = async (b, msg) => { await sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: { ...prefsBase, ...b } }); setSheet(null); doneMsg(msg); };
   const mcommon = { mine: mera.mine, otherName, rates: mera.rates, live, onRates: () => setSheet({ kind: 'rates' }), onNewAccount: () => setSheet({ kind: 'account-edit' }), onOpenAccount: (a) => setSheet({ kind: 'account', row: a }), onAdd: (type) => setSheet({ kind: 'ptx', preset: { type } }) };
 
   const screens = mode === 'dosti' ? {
@@ -247,10 +275,12 @@ export default function App() {
     mahina: <Mahina data={data} {...common} setMonth={setMonth} />,
     activity: <ActivityView activity={data.activity} me={me} ids={ids} names={names} colors={COLORS} byKey={byKey} onOpen={open} />,
   } : {
-    home: <MeraHome {...mcommon} allTx={mera.allTx} balances={mera.balances} report={mera.report} worth={mera.worth} owedToMe={mera.owedToMe} iOwe={mera.iOwe}
-      onOpenTxn={openTxn} onAll={() => setSheet({ kind: 'alltx' })} onGo={setTab} />,
+    home: <MeraHome {...mcommon} allTx={mera.allTx} balances={mera.balances} report={mera.report} worth={mera.worth} owedToMe={mera.owedToMe} iOwe={mera.iOwe} budget={mera.budget}
+      onOpenTxn={openTxn} onAll={() => setTab('txns')} onGo={setTab} />,
+    txns: <MeraTxns {...mcommon} allTx={mera.allTx} period={tPeriod} setPeriod={setTPeriod} onPick={() => pickRange(tPeriod, setTPeriod)} onOpen={openTxn} onPdf={(p) => setSheet({ kind: 'pdf', period: p })} />,
     accounts: <MeraAccounts {...mcommon} balances={mera.balances} worth={mera.worth} />,
-    analytics: <MeraAnalytics {...mcommon} report={mera.report} month={meraMonth} setMonth={setMeraMonth} reportFor={mera.reportFor} onPdf={pdf} />,
+    analytics: <MeraAnalytics {...mcommon} period={aPeriod} setPeriod={setAPeriod} onPick={() => pickRange(aPeriod, setAPeriod)} reportRange={mera.reportRange} reportFor={mera.reportFor}
+      budget={mera.budget} onBudget={() => setSheet({ kind: 'budget' })} minDate={mera.minDate} onPdf={(p) => setSheet({ kind: 'pdf', period: p })} />,
     people: <MeraPeople {...mcommon} people={mera.people} shared={data} me={me} onOpenContact={(c) => setSheet({ kind: 'contact', row: c })} onNewContact={() => setSheet({ kind: 'contact-edit' })} onOpenShared={goShared} />,
   };
 
@@ -311,7 +341,7 @@ export default function App() {
   const mp = { accounts: mera.mine.accounts, contacts: mera.mine.contacts, balances: mera.balances, onCreateAccount: quickAccount, onCreateContact: quickContact };
   if (s?.kind === 'ptx') {
     sheetTitle = s.row ? 'Len-den badlo' : 'Mera len-den';
-    sheetBody = <TxnForm key={s.row ? idOf(s.row) : 'new-' + (s.preset?.type || '')} {...mp} initial={s.row} preset={s.preset}
+    sheetBody = <TxnForm key={s.row ? idOf(s.row) : 'new-' + (s.preset?.type || '')} {...mp} rates={mera.rates} initial={s.row} preset={s.preset}
       onSave={async (b) => { await mSave('ptx', b, s.row); haptic(12); setSheet(s.back || null); doneMsg(s.row ? 'Tabdeeli save ho gayi' : 'Save ho gaya'); }}
       onDelete={async () => { await mRemove('ptx', s.row); setSheet(s.back || null); doneMsg('Delete ho gaya'); }} />;
   }
@@ -341,9 +371,45 @@ export default function App() {
   }
   if (s?.kind === 'rates') {
     sheetTitle = 'Currency rate';
-    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} live={live} onSave={async (b) => { await sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: b }); setSheet(null); doneMsg('Rate save ho gaya'); }} />;
+    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} live={live} onSave={(b) => savePrefs(b, 'Rate save ho gaya')} />;
   }
-  if (s?.kind === 'alltx') { sheetTitle = 'Mere saare len-den'; sheetBody = <AllTxns mine={mera.mine} allTx={mera.allTx} otherName={otherName} onOpen={(t) => (t.synthetic ? openTxn(t) : setSheet({ kind: 'ptx', row: t, back: s }))} />; }
+  if (s?.kind === 'range') { sheetTitle = 'Muddat chuno'; sheetBody = <RangePicker value={s.value} onApply={(p) => { s.onApply(p); setSheet(null); }} />; }
+  if (s?.kind === 'pdf') {
+    sheetTitle = 'PDF report';
+    const p = s.period || periodOf('month');
+    sheetBody = (
+      <div className="pdf-sheet">
+        <div className="pdf-now"><FileDown size={22} /><span><b>{p.kind === 'all' ? 'Shuru se ab tak' : periodLabel(p)}</b><small>Is muddat ke saare len-den, kharche ka hisaab, accounts aur khate</small></span></div>
+        <button className="btn primary wide" onClick={() => { setSheet(null); pdf(p); }}><FileDown size={18} /> PDF banao</button>
+        <p className="chooser-sep">Ya doosri muddat chuno</p>
+        <RangePicker value={p} applyLabel="Is muddat ki PDF banao" onApply={(np) => { setSheet(null); pdf(np); }} />
+      </div>
+    );
+  }
+  if (s?.kind === 'budget') {
+    sheetTitle = 'Mahine ka budget';
+    sheetBody = <BudgetForm value={mera.budget} spent={mera.reportFor(thisMonth()).spent} onSave={(v) => savePrefs({ budget: v }, v ? 'Budget lag gaya' : 'Budget hata diya')} />;
+  }
+  if (s?.kind === 'more') {
+    sheetTitle = 'Aur';
+    const go = (t) => { setTab(t); setSheet(null); };
+    sheetBody = (
+      <div className="more-grid">
+        {[
+          ['Khate', 'Logon ka len-den', Users, () => go('people'), 'm-loan'],
+          ['Analytics', 'Charts aur hisaab', BarChart3, () => go('analytics'), 'm-mv2'],
+          ['PDF report', 'Kisi bhi muddat ki', FileDown, () => setSheet({ kind: 'pdf', period: tPeriod }), 'm-out'],
+          ['Budget', mera.budget ? `${money0(mera.budget)} mahina` : 'Kharche ki had', Target, () => setSheet({ kind: 'budget' }), 'm-in'],
+          ['Currency rate', 'USDT, dollar', Coins, () => setSheet({ kind: 'rates' }), 'm-mv'],
+          ['Mera account', 'PIN, notifications', UserRound, () => setSheet({ kind: 'settings' }), 'm-gray'],
+        ].map(([l, d, I, fn, c], i) => (
+          <motion.button key={l} whileTap={{ scale: 0.95 }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.035 }} onClick={fn}>
+            <span className={'entry-icon ' + c}><I size={21} /></span><strong>{l}</strong><small>{d}</small>
+          </motion.button>
+        ))}
+      </div>
+    );
+  }
 
   if (s?.kind === 'chooser') {
     sheetTitle = 'Kya likhna hai?';
@@ -422,10 +488,10 @@ export default function App() {
     { id: 'activity', label: 'Badlav', icon: History, badge: unread },
   ] : [
     { id: 'home', label: 'Home', icon: HomeIcon },
-    { id: 'accounts', label: 'Accounts', icon: Landmark },
+    { id: 'txns', label: 'Len-den', icon: ListOrdered },
     { id: 'plus' },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'people', label: 'Khate', icon: Users },
+    { id: 'accounts', label: 'Accounts', icon: Landmark },
+    { id: 'more', label: 'More', icon: Grip, active: ['analytics', 'people'].includes(tab) },
   ];
 
   return (
@@ -454,8 +520,8 @@ export default function App() {
             <Plus size={26} strokeWidth={2.4} />
           </motion.button>
         ) : (
-          <button key={mode + t.id} className={'tab' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
-            {tab === t.id && <motion.span layoutId="tab-dot" className="tab-dot" />}
+          <button key={mode + t.id} className={'tab' + (tab === t.id || t.active ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => (t.id === 'more' ? (haptic(), setSheet({ kind: 'more' })) : setTab(t.id))}>
+            {(tab === t.id || t.active) && <motion.span layoutId="tab-dot" className="tab-dot" />}
             <span className="tab-ic"><t.icon size={22} />{t.badge > 0 && <motion.span className="badge" initial={{ scale: 0 }} animate={{ scale: 1 }}>{t.badge > 9 ? '9+' : t.badge}</motion.span>}</span>
             <span>{t.label}</span>
           </button>

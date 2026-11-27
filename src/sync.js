@@ -24,10 +24,12 @@ export function normalize(body, ids) {
   return { ...base, category: body.category, paidBy: body.paidBy, split: body.split, shares: { [debtor]: owed, [body.paidBy]: round(amt - owed) } };
 }
 
+const isEntries = (op) => !op.col || op.col === 'entries';
+
 export function applyQueue(rows, queue, me, ids) {
   const out = rows.map((r) => ({ ...r }));
   const find = (key) => out.findIndex((r) => keyOf(r) === key || String(r._id) === key);
-  for (const op of queue) {
+  for (const op of queue.filter(isEntries)) {
     const i = find(op.key);
     if (op.kind === 'delete') { if (i >= 0) out.splice(i, 1); continue; }
     if (op.kind === 'confirm') { if (i >= 0) out[i] = { ...out[i], confirmedAt: new Date(op.at).toISOString(), confirmedBy: me, pending: true }; continue; }
@@ -44,10 +46,34 @@ export function applyQueue(rows, queue, me, ids) {
   return out;
 }
 
+// Mera Hisaab: phone ki line ko apne data par lagao (offline bhi sahi dikhe)
+export const EMPTY_MINE = { accounts: [], ptx: [], contacts: [], prefs: { rates: {} } };
+export function applyMine(mine, queue, me) {
+  const out = { accounts: [...(mine?.accounts || [])], ptx: [...(mine?.ptx || [])], contacts: [...(mine?.contacts || [])], prefs: mine?.prefs || { rates: {} } };
+  for (const op of queue) {
+    if (isEntries(op)) continue;
+    if (op.col === 'prefs') { out.prefs = { ...out.prefs, ...op.body, pending: true }; continue; }
+    const list = out[op.col];
+    if (!list) continue;
+    const i = list.findIndex((r) => keyOf(r) === op.key || String(r._id) === op.key);
+    if (op.kind === 'delete') {
+      if (i < 0) continue;
+      if (op.col === 'ptx') list.splice(i, 1);
+      else list[i] = { ...list[i], archived: true, pending: true }; // server faisla karega: mitao ya chhupao
+      continue;
+    }
+    const data = { ...op.body, pending: true };
+    if (op.kind === 'create' && i < 0) list.push({ ...data, _id: op.key, clientId: op.key, owner: me, createdAt: new Date(op.at).toISOString() });
+    else if (i >= 0) list[i] = { ...list[i], ...data };
+  }
+  return out;
+}
+
 // Line mein naya kaam jodo, purane kaam ke saath mila kar
 function mergeOp(queue, op) {
   const q = [...queue];
   const idx = (kind) => q.findIndex((o) => o.key === op.key && o.kind === kind);
+  if (op.col === 'prefs') return [...q.filter((o) => o.col !== 'prefs'), op];
   if (op.kind === 'create' || op.kind === 'confirm') return [...q, op];
   const c = idx('create');
   if (op.kind === 'update') {
@@ -71,6 +97,7 @@ function mergeBody(a, b) {
 export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
   const [rows, setRows] = useState(() => LS.get(ROWS, null));
   const [activity, setActivity] = useState(() => LS.get('khata.activity', []));
+  const [mine, setMine] = useState(() => LS.get('khata.mine', EMPTY_MINE));
   const [queue, setQueue] = useState([]);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [live, setLive] = useState(false);
@@ -108,6 +135,8 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
       setActivity(r.activity || []);
       LS.set('khata.activity', r.activity || []);
       setOnline(true);
+      const m = await api('/me/data').catch(() => null);
+      if (m) { setMine(m); LS.set('khata.mine', m); }
     } catch (e) {
       if (e.status === 401) cb.current.onUnauthorized?.();
       else if (!e.status) setOnline(false);
@@ -125,7 +154,12 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
         const op = qRef.current[0];
         inflight.current = op;
         try {
-          if (op.kind === 'create') await api('/entries', { method: 'POST', body: { ...op.body, clientId: op.key } });
+          if (op.col && op.col !== 'entries') {
+            const base = '/me/' + op.col;
+            if (op.col === 'prefs' || op.kind === 'create') await api(base, { method: 'POST', body: { ...op.body, clientId: op.col === 'prefs' ? undefined : op.key } });
+            else if (op.kind === 'update') await api(base + '/' + encodeURIComponent(op.key), { method: 'PUT', body: op.body });
+            else await api(base + '/' + encodeURIComponent(op.key), { method: 'DELETE' });
+          } else if (op.kind === 'create') await api('/entries', { method: 'POST', body: { ...op.body, clientId: op.key } });
           else if (op.kind === 'update') await api('/entries/' + encodeURIComponent(op.key), { method: 'PUT', body: op.body });
           else if (op.kind === 'confirm') await api('/entries/' + encodeURIComponent(op.key) + '/confirm', { method: 'POST' });
           else await api('/entries/' + encodeURIComponent(op.key), { method: 'DELETE' });
@@ -193,6 +227,7 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
     const open = () => {
       es = new EventSource('/api/stream?t=' + encodeURIComponent(token));
       es.addEventListener('hello', () => { setLive(true); setOnline(true); flush(); });
+      es.addEventListener('mine', () => pull());
       es.addEventListener('change', (ev) => {
         pull();
         try { const d = JSON.parse(ev.data || '{}'); if (d.by && d.by !== cb.current.me) cb.current.onRemote?.(d); } catch { /* */ }
@@ -206,5 +241,5 @@ export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
     return () => { clearTimeout(retry); es?.close(); };
   }, [token, pull, flush]);
 
-  return { rows, activity, queue, online, live, syncing, enqueue, pull, flush };
+  return { rows, activity, mine, queue, online, live, syncing, enqueue, pull, flush };
 }

@@ -7,6 +7,7 @@ import { computeLedger, monthStats, other, dueBefore } from './ledger.js';
 import { setupPush } from './push.js';
 import { snapshot, diff, shareOf } from './activity.js';
 import { createAI } from './ai.js';
+import { personalRoutes } from './personal.js';
 import { UTApi, UTFile } from 'uploadthing/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -176,19 +177,24 @@ app.use('/api', (req, res, next) => {
 });
 
 /* ---------------- real-time (Server-Sent Events) ---------------- */
-const streams = new Set();
-function broadcast(event, data) {
+const streams = new Set(); // { res, me }
+function broadcast(event, data, onlyUser) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const r of streams) r.write(msg);
+  for (const s of streams) if (!onlyUser || s.me === onlyUser) s.res.write(msg);
 }
 app.get('/api/stream', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   res.write(`retry: 3000\nevent: hello\ndata: {}\n\n`);
-  streams.add(res);
+  const entry = { res, me: req.me };
+  streams.add(entry);
   const ping = setInterval(() => res.write(': ping\n\n'), 20000);
-  req.on('close', () => { clearInterval(ping); streams.delete(res); });
+  req.on('close', () => { clearInterval(ping); streams.delete(entry); });
 });
+
+/* ---------------- Mera Hisaab (sirf apna) ---------------- */
+// Doosre bande ko is ki khabar nahi jati; sirf apne doosre phone ko "change" (taake wahan bhi update ho)
+personalRoutes(app, store, (me) => broadcast('mine', { at: Date.now() }, me));
 
 /* ---------------- AI: bol kar / likh kar entry ---------------- */
 // AI sirf form bharne ki tajweez deta hai. Yahan se kuch save nahi hota.

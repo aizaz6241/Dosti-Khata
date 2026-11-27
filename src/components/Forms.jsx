@@ -4,7 +4,7 @@ import Calculator from './Calculator';
 import { Trash2, ImagePlus, X, Sparkles, Calculator as CalcIcon, Minus, Plus as PlusIcon } from 'lucide-react';
 import { CATEGORIES, compressImage, shotUrl, rs, num, today, nowTime } from '../lib';
 
-function AmountInput({ value, onChange, autoFocus, label, calc = true, parts }) {
+export function AmountInput({ value, onChange, autoFocus, label, calc = true, parts, cur = 'Rs' }) {
   const [showCalc, setShowCalc] = useState(false);
   const [calcInit, setCalcInit] = useState('');
   const sum = parts?.length > 1 ? Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100 : null;
@@ -16,7 +16,7 @@ function AmountInput({ value, onChange, autoFocus, label, calc = true, parts }) 
       <label className="amount-field">
         {label && <span className="amount-label">{label}</span>}
         <span className="amount-row" style={{ '--amt': size + 'px' }}>
-          <span className="amount-cur">Rs</span>
+          <span className="amount-cur">{cur}</span>
           {/* Chaurai chhupe hue text se, input us ke upar: kisi phone par nahi katega */}
           <span className="amount-box">
             <span className="amount-sizer" aria-hidden="true">{value || '0'}</span>
@@ -52,7 +52,7 @@ function AmountInput({ value, onChange, autoFocus, label, calc = true, parts }) 
   );
 }
 
-function Segmented({ options, value, onChange, name }) {
+export function Segmented({ options, value, onChange, name }) {
   return (
     <div className="seg" role="radiogroup" aria-label={name}>
       {options.map((o) => (
@@ -73,7 +73,7 @@ function Segmented({ options, value, onChange, name }) {
   );
 }
 
-function DeleteButton({ onDelete }) {
+export function DeleteButton({ onDelete }) {
   const [sure, setSure] = useState(false);
   return (
     <button type="button" className={'btn danger' + (sure ? ' sure' : '')} onClick={() => (sure ? onDelete() : setSure(true))}>
@@ -82,7 +82,7 @@ function DeleteButton({ onDelete }) {
   );
 }
 
-function DateRow({ date, setDate, time, setTime }) {
+export function DateRow({ date, setDate, time, setTime }) {
   return (
     <div className="field">
       <span className="field-label">Tareekh aur time</span>

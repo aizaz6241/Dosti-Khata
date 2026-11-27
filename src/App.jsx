@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History, Mic } from 'lucide-react';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History, Mic, Wallet, ArrowDownLeft, ArrowLeftRight } from 'lucide-react';
 import { api, LS, thisMonth, haptic, nowTime } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
-import { useKhata, applyQueue, newId } from './sync';
+import { useKhata, applyQueue, applyMine, newId } from './sync';
+import { accountBalances, peopleLedger, netWorth, monthReport, toPKR, idOf } from '../server/money.js';
+import MeraScreen, { AllTxns, AccountDetail, ContactDetail } from './mine/MeraScreen';
+import { TxnForm, AccountForm, ContactForm, RatesForm } from './mine/forms';
 import { usePush } from './push';
 import { chime } from './chime';
 import Sheet from './components/Sheet';
@@ -42,7 +45,7 @@ export default function App() {
   const pushRef = useRef(null);
   const logout = useCallback(() => {
     pushRef.current?.disable?.().catch?.(() => {});
-    ['khata.token', 'khata.rows', 'khata.me', 'khata.activity', 'khata.seenAct'].forEach(LS.del);
+    ['khata.token', 'khata.rows', 'khata.me', 'khata.activity', 'khata.seenAct', 'khata.mine'].forEach(LS.del);
     setToken(null); setMe(null);
   }, []);
 
@@ -68,6 +71,23 @@ export default function App() {
     return { people, me, ...ledger, entries, activity, stats: monthStats(rows, ids, month), homeStats: monthStats(rows, ids, thisMonth()), months };
   }, [sync.rows, sync.activity, sync.queue, me, ids, people, month]);
   const [seenAct, setSeenAct] = useState(LS.get('khata.seenAct', 0));
+  const [khataView, setKhataView] = useState('list');
+  const [meraMonth, setMeraMonth] = useState(thisMonth());
+
+  // Mera Hisaab: phone par hi hisaab (offline bhi)
+  const mera = useMemo(() => {
+    const mine = applyMine(sync.mine, sync.queue, me);
+    const rates = mine.prefs?.rates || {};
+    const balances = accountBalances(mine.accounts, mine.ptx);
+    const people = peopleLedger(mine.contacts.filter((c) => !c.archived), mine.ptx, mine.accounts);
+    const worth = netWorth(mine.accounts, balances, rates);
+    let owedToMe = 0, iOwe = 0;
+    for (const p of Object.values(people)) for (const [cur, v] of Object.entries(p.balance)) {
+      const pk = toPKR(v, cur, rates) ?? 0;
+      if (pk > 0) owedToMe += pk; else iOwe += -pk;
+    }
+    return { mine, rates, balances, people, worth, owedToMe, iOwe, report: monthReport(mine.ptx, mine.accounts, meraMonth, rates) };
+  }, [sync.mine, sync.queue, me, meraMonth]);
   useEffect(() => { // naam server se (agar badle hon)
     api('/people').then((r) => { setPeople(r.people); LS.set('khata.people', r.people); }).catch(() => {});
   }, []);
@@ -115,6 +135,17 @@ export default function App() {
     const msg = entry ? 'Tabdeeli save ho gayi' : { payment: 'Payment save ho gayi', loan: 'Qarz save ho gaya', expense: 'Kharcha save ho gaya' }[body.type];
     say(navigator.onLine ? msg : msg + '. Net aate hi sync hogi');
   };
+  // Mera Hisaab: save / delete (pehle phone, phir server)
+  const mSave = async (col, body, row) => {
+    const key = row ? idOf(row) : newId();
+    await sync.enqueue({ col, kind: row ? 'update' : 'create', key, body });
+    return key;
+  };
+  const mRemove = async (col, row) => { await sync.enqueue({ col, kind: 'delete', key: idOf(row) }); };
+  const quickAccount = (body) => { const key = newId(); sync.enqueue({ col: 'accounts', kind: 'create', key, body: { ...body, archived: false } }); return key; };
+  const quickContact = (body) => { const key = newId(); sync.enqueue({ col: 'contacts', kind: 'create', key, body: { ...body, phone: '', archived: false } }); return key; };
+  const doneMsg = (m) => say(navigator.onLine ? m : m + '. Net aate hi sync hoga');
+
   const confirm = async (entry) => {
     await sync.enqueue({ kind: 'confirm', key: keyOf(entry) });
     haptic(15);
@@ -155,8 +186,29 @@ export default function App() {
       onDismissInstall={() => { setInstallHidden(true); LS.set('khata.installHidden', true); }}
       onConfirm={confirm}
       canNotify={pushState.supported && !pushState.on && !LS.get('khata.notifyHidden')} onNotify={notifyToggle} />,
-    khata: <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} />,
-    mahina: <Mahina data={data} {...common} setMonth={setMonth} />,
+    khata: (
+      <>
+        <div className="view-toggle" role="tablist">
+          <button role="tab" aria-selected={khataView === 'list'} className={khataView === 'list' ? 'on' : ''} onClick={() => setKhataView('list')}>Entries</button>
+          <button role="tab" aria-selected={khataView === 'month'} className={khataView === 'month' ? 'on' : ''} onClick={() => setKhataView('month')}>Mahina</button>
+        </div>
+        {khataView === 'list' ? <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} /> : <Mahina data={data} {...common} setMonth={setMonth} />}
+      </>
+    ),
+    mera: <MeraScreen mine={mera.mine} balances={mera.balances} people={mera.people} report={mera.report} month={meraMonth} setMonth={setMeraMonth}
+      worth={mera.worth} owedToMe={mera.owedToMe} iOwe={mera.iOwe}
+      onAdd={(type) => setSheet({ kind: 'ptx', preset: { type } })}
+      onOpenAccount={(a) => setSheet({ kind: 'account', row: a })} onOpenContact={(c) => setSheet({ kind: 'contact', row: c })}
+      onOpenTxn={(t) => setSheet({ kind: 'ptx', row: t })} onNewAccount={() => setSheet({ kind: 'account-edit' })} onNewContact={() => setSheet({ kind: 'contact-edit' })}
+      onRates={() => setSheet({ kind: 'rates' })} onAll={() => setSheet({ kind: 'alltx' })}
+      onPdf={async () => {
+        say('PDF ban raha hai...');
+        try {
+          const { exportPdf } = await import('./mine/pdf.js');
+          const r = await exportPdf({ name: names[me], mine: mera.mine, balances: mera.balances, people: mera.people, worth: mera.worth, shared: data, me, names });
+          if (r !== 'cancel') say(r === 'shared' ? 'PDF tayyar' : 'PDF download ho gaya');
+        } catch (e) { say('PDF nahi bana: ' + e.message); }
+      }} />,
     activity: <ActivityView activity={data.activity} me={me} ids={ids} names={names} colors={COLORS} byKey={byKey} onOpen={open} />,
   };
 
@@ -209,10 +261,49 @@ export default function App() {
       ? <PaymentForm {...formProps} loan={s.entry.type === 'loan'} balance={balance} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />
       : <ExpenseForm {...formProps} initial={s.entry} onSave={(b) => save(b, s.entry)} onDelete={() => remove(s.entry)} />;
   }
+  // ---- Mera Hisaab sheets ----
+  const mp = { accounts: mera.mine.accounts, contacts: mera.mine.contacts, balances: mera.balances, onCreateAccount: quickAccount, onCreateContact: quickContact };
+  if (s?.kind === 'ptx') {
+    sheetTitle = s.row ? 'Len-den badlo' : 'Mera len-den';
+    sheetBody = <TxnForm key={s.row ? idOf(s.row) : 'new-' + (s.preset?.type || '')} {...mp} initial={s.row} preset={s.preset}
+      onSave={async (b) => { await mSave('ptx', b, s.row); haptic(12); setSheet(s.back || null); doneMsg(s.row ? 'Tabdeeli save ho gayi' : 'Save ho gaya'); }}
+      onDelete={async () => { await mRemove('ptx', s.row); setSheet(s.back || null); doneMsg('Delete ho gaya'); }} />;
+  }
+  if (s?.kind === 'account') {
+    const a = mera.mine.accounts.find((x) => idOf(x) === idOf(s.row)) || s.row;
+    sheetTitle = a.name;
+    sheetBody = <AccountDetail a={a} balance={mera.balances[idOf(a)] || 0} mine={mera.mine} rates={mera.rates}
+      onOpen={(t) => setSheet({ kind: 'ptx', row: t, back: s })} onAdd={(type) => setSheet({ kind: 'ptx', preset: { type, accountId: idOf(a) }, back: s })}
+      onAdjust={() => setSheet({ kind: 'ptx', preset: { type: 'adjust', accountId: idOf(a) }, back: s })} onEdit={() => setSheet({ kind: 'account-edit', row: a })} />;
+  }
+  if (s?.kind === 'account-edit') {
+    sheetTitle = s.row ? 'Account badlo' : 'Naya account';
+    sheetBody = <AccountForm initial={s.row} onSave={async (b) => { await mSave('accounts', b, s.row); setSheet(null); doneMsg(s.row ? 'Account badal gaya' : 'Account ban gaya'); }}
+      onDelete={async () => { await mRemove('accounts', s.row); setSheet(null); doneMsg('Account hata diya'); }} />;
+  }
+  if (s?.kind === 'contact') {
+    const c = mera.mine.contacts.find((x) => idOf(x) === idOf(s.row)) || s.row;
+    sheetTitle = c.name;
+    sheetBody = <ContactDetail c={c} ledger={mera.people[idOf(c)]} mine={mera.mine}
+      onOpen={(t) => setSheet({ kind: 'ptx', row: mera.mine.ptx.find((x) => idOf(x) === idOf(t)) || t, back: s })}
+      onAdd={(type) => setSheet({ kind: 'ptx', preset: { type, contactId: idOf(c) }, back: s })} onEdit={() => setSheet({ kind: 'contact-edit', row: c })} />;
+  }
+  if (s?.kind === 'contact-edit') {
+    sheetTitle = s.row ? 'Banda badlo' : 'Naya banda';
+    sheetBody = <ContactForm initial={s.row} onSave={async (b) => { await mSave('contacts', b, s.row); setSheet(null); doneMsg('Save ho gaya'); }}
+      onDelete={async () => { await mRemove('contacts', s.row); setSheet(null); doneMsg('Hata diya'); }} />;
+  }
+  if (s?.kind === 'rates') {
+    sheetTitle = 'Currency rate';
+    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} onSave={async (b) => { await sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: b }); setSheet(null); doneMsg('Rate save ho gaya'); }} />;
+  }
+  if (s?.kind === 'alltx') { sheetTitle = 'Mere saare len-den'; sheetBody = <AllTxns mine={mera.mine} onOpen={(t) => setSheet({ kind: 'ptx', row: t, back: s })} />; }
+
   if (s?.kind === 'chooser') {
     sheetTitle = 'Kya likhna hai?';
     sheetBody = (
       <div className="chooser">
+        <p className="chooser-sep first">{names[otherId]} ke saath</p>
         <motion.button className="ai-choice" whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'ai' })}>
           <span className="ch-icon ai"><Mic size={22} /></span>
           <span><strong>Bol kar likho</strong><small>Apne andaz mein bolo ya likho, AI form bhar dega. Save aap karoge.</small></span>
@@ -227,8 +318,14 @@ export default function App() {
         </motion.button>
         <motion.button whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'loan' })}>
           <span className="ch-icon loan"><HandCoins size={22} /></span>
-          <span><strong>Qarz</strong><small>Ek ne doosre ko udhaar diya, jo wapas karna hai</small></span>
+          <span><strong>Qarz</strong><small>{names[otherId]} ke saath udhaar, jo wapas karna hai</small></span>
         </motion.button>
+        <p className="chooser-sep">Sirf mera (Mera Hisaab)</p>
+        <div className="chooser-mini">
+          {[['expense', 'Mera kharcha', Receipt], ['income', 'Aamdani', ArrowDownLeft], ['transfer', 'Transfer', ArrowLeftRight], ['lend', 'Kisi se qarz', HandCoins]].map(([t, l, I]) => (
+            <motion.button key={t} whileTap={{ scale: 0.95 }} onClick={() => setSheet({ kind: 'ptx', preset: { type: t } })}><I size={19} /><span>{l}</span></motion.button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -264,7 +361,7 @@ export default function App() {
     { id: 'home', label: 'Ghar', icon: HomeIcon },
     { id: 'khata', label: 'Khata', icon: BookOpen },
     { id: 'plus' },
-    { id: 'mahina', label: 'Mahina', icon: BarChart3 },
+    { id: 'mera', label: 'Mera', icon: Wallet },
     { id: 'me', label: names[me], icon: UserRound },
   ];
 

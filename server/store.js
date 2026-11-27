@@ -50,6 +50,12 @@ function mongoStore(uri) {
     { action: String, key: String, by: String, at: { type: Date, index: true }, before: Object, after: Object, changes: Array },
     { minimize: false }
   ));
+  // Mera Hisaab: har bande ka apna (owner)
+  const flex = (name) => mongoose.models[name] || mongoose.model(name, new mongoose.Schema(
+    { owner: { type: String, index: true }, clientId: { type: String, index: { unique: true, sparse: true } } },
+    { strict: false, timestamps: true, minimize: false }
+  ));
+  const Account = flex('Account'), Ptx = flex('Ptx'), Contact = flex('Contact'), Pref = flex('Pref');
   const Meta = mongoose.models.Meta || mongoose.model('Meta', new mongoose.Schema({ _id: String, value: mongoose.Schema.Types.Mixed }));
 
   const repo = (M, fields) => ({
@@ -70,6 +76,7 @@ function mongoStore(uri) {
     subs: repo(Sub),
     meta: repo(Meta),
     activity: { ...repo(Activity), recent: async (n) => Activity.find().sort({ at: -1 }).limit(n).lean() },
+    accounts: repo(Account), ptx: repo(Ptx), contacts: repo(Contact), prefs: repo(Pref),
   };
 }
 
@@ -124,6 +131,10 @@ export function createStore() {
     files: fileRepo(path.join(dir, 'files.json'), null),
     subs: fileRepo(path.join(dir, 'subs.json'), null),
     meta: fileRepo(path.join(dir, 'meta.json'), null, true),
+    accounts: fileRepo(path.join(dir, 'accounts.json'), null),
+    ptx: fileRepo(path.join(dir, 'ptx.json'), null),
+    contacts: fileRepo(path.join(dir, 'contacts.json'), null),
+    prefs: fileRepo(path.join(dir, 'prefs.json'), null),
     activity: (() => {
       const r = fileRepo(path.join(dir, 'activity.json'), null);
       return { ...r, recent: async (n) => (await r.all()).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, n) };

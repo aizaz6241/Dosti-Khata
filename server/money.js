@@ -110,7 +110,7 @@ export function monthReport(txns, accounts, monthKey, rates = {}) {
     month: monthKey,
     ...now,
     saved: round(now.income - now.spent),
-    perDay: round(now.spent / daysIn),
+    perDay: Math.round(now.spent / daysIn),
     prev: { month: prevMonth(monthKey), spent: before.spent, income: before.income },
     change: before.spent > 0 ? round(((now.spent - before.spent) / before.spent) * 100) : null,
   };

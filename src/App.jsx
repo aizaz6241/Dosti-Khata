@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History } from 'lucide-react';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History, Mic } from 'lucide-react';
 import { api, LS, thisMonth, haptic } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
 import { useKhata, applyQueue, newId } from './sync';
@@ -11,6 +11,7 @@ import { ExpenseForm, PaymentForm, PinForm } from './components/Forms';
 import { Home, Khata, Mahina, Lock, InstallGuide } from './screens';
 import ActivityView, { relevant } from './components/Activity';
 import SyncDot from './components/SyncDot';
+import VoiceEntry from './components/VoiceEntry';
 
 const COLORS = { aizaz: '#3D52D5', abdullah: '#D4931A' };
 const DEFAULT_PEOPLE = [{ id: 'aizaz', name: 'Aizaz' }, { id: 'abdullah', name: 'Abdullah' }];
@@ -159,9 +160,15 @@ export default function App() {
   const s = sheet;
   const formProps = { ...common, busy };
   let sheetTitle = '', sheetBody = null;
-  if (s?.kind === 'expense') { sheetTitle = 'Naya kharcha'; sheetBody = <ExpenseForm {...formProps} onSave={(b) => save(b)} />; }
-  if (s?.kind === 'loan') { sheetTitle = 'Qarz'; sheetBody = <PaymentForm {...formProps} loan balance={balance} onSave={(b) => save(b)} />; }
-  if (s?.kind === 'payment') { sheetTitle = 'Paise bheje'; sheetBody = <PaymentForm {...formProps} balance={balance} prefillClear={s.clear} onSave={(b) => save(b)} />; }
+  const aiProps = s?.prefill ? { prefill: s.prefill, ai: s.ai } : {};
+  if (s?.kind === 'expense') { sheetTitle = 'Naya kharcha'; sheetBody = <ExpenseForm {...formProps} {...aiProps} onSave={(b) => save(b)} />; }
+  if (s?.kind === 'loan') { sheetTitle = 'Qarz'; sheetBody = <PaymentForm {...formProps} {...aiProps} loan balance={balance} onSave={(b) => save(b)} />; }
+  if (s?.kind === 'payment') { sheetTitle = 'Paise bheje'; sheetBody = <PaymentForm {...formProps} {...aiProps} balance={balance} prefillClear={s.clear} onSave={(b) => save(b)} />; }
+  if (s?.kind === 'ai') {
+    sheetTitle = 'Bol kar likho';
+    sheetBody = <VoiceEntry otherName={names[otherId]} online={sync.online}
+      onResult={(r) => setSheet({ kind: r.form.type, prefill: r.form, ai: { transcript: r.transcript, assumed: r.assumed, missing: r.missing, question: r.question } })} />;
+  }
   if (s?.kind === 'detail') {
     sheetTitle = { payment: 'Payment', loan: 'Qarz', expense: 'Kharcha' }[s.entry.type];
     sheetBody = <EntryDetail e={s.entry} {...common} byId={byId} onOpen={open} onConfirm={confirm} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })} />;
@@ -176,6 +183,10 @@ export default function App() {
     sheetTitle = 'Kya likhna hai?';
     sheetBody = (
       <div className="chooser">
+        <motion.button className="ai-choice" whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'ai' })}>
+          <span className="ch-icon ai"><Mic size={22} /></span>
+          <span><strong>Bol kar likho</strong><small>Apne andaz mein bolo ya likho, AI form bhar dega. Save aap karoge.</small></span>
+        </motion.button>
         <motion.button whileTap={{ scale: 0.97 }} onClick={() => setSheet({ kind: 'expense' })}>
           <span className="ch-icon"><Receipt size={22} /></span>
           <span><strong>Kharcha</strong><small>Kisi ne doosre ke liye paise diye: sabzi, khana, program, kuch bhi</small></span>

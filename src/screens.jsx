@@ -24,8 +24,9 @@ export function Lock({ people, colors, onLogin, error, busy }) {
         <div className="lock-top">
           <img src="/icons/icon-192.png" alt="" className="lock-logo" />
           <h1>Dosti Khata</h1>
-          <p>Apna account chuno</p>
+          <p className="tagline">Hisaab saaf, dosti pakki</p>
         </div>
+        <p className="pick-label">Apna account chuno</p>
         <div className="who-grid">
           {people.map((p, i) => (
             <motion.button key={p.id} className="who-card" style={{ '--c': colors[p.id] }}
@@ -37,6 +38,7 @@ export function Lock({ people, colors, onLogin, error, busy }) {
             </motion.button>
           ))}
         </div>
+        <p className="brand">by <b>EZOX</b></p>
       </div>
     );
   }

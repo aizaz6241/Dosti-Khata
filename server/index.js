@@ -6,6 +6,7 @@ import { createStore } from './store.js';
 import { computeLedger, monthStats, other, dueBefore } from './ledger.js';
 import { setupPush } from './push.js';
 import { snapshot, diff, shareOf } from './activity.js';
+import { createAI } from './ai.js';
 import { UTApi, UTFile } from 'uploadthing/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,7 @@ const PEOPLE = [
 const IDS = PEOPLE.map((p) => p.id);
 const nameOf = (id) => PEOPLE.find((p) => p.id === id)?.name || id;
 let push = null; // setupPush ke baad
+const ai = createAI();
 const publicPeople = () => PEOPLE.map(({ id, name }) => ({ id, name }));
 
 const store = createStore();
@@ -173,6 +175,19 @@ app.get('/api/stream', (req, res) => {
   streams.add(res);
   const ping = setInterval(() => res.write(': ping\n\n'), 20000);
   req.on('close', () => { clearInterval(ping); streams.delete(res); });
+});
+
+/* ---------------- AI: bol kar / likh kar entry ---------------- */
+// AI sirf form bharne ki tajweez deta hai. Yahan se kuch save nahi hota.
+app.get('/api/ai/status', (_req, res) => res.json({ enabled: ai.enabled }));
+app.post('/api/ai/parse', async (req, res, next) => {
+  try {
+    const { audio, mime, text, today } = req.body || {};
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+    const otherId = other(req.me, IDS);
+    const names = Object.fromEntries(PEOPLE.map((p) => [p.id, p.name]));
+    res.json(await ai.parse({ me: req.me, otherId, names, audio, mime, text, today: day }));
+  } catch (e) { e.status = e.status || 500; next(e); }
 });
 
 /* ---------------- push ---------------- */

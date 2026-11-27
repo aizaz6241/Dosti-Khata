@@ -1,7 +1,7 @@
 {
   "name": "Dosti Khata",
   "short_name": "Khata",
-  "description": "Aizaz aur Abdullah ka saanjha hisaab",
+  "description": "Hisaab saaf, dosti pakki. Kharche, payments aur qarz ka pakka hisaab.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

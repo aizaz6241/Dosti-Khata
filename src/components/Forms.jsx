@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2, ImagePlus, X } from 'lucide-react';
+import { Trash2, ImagePlus, X, Sparkles } from 'lucide-react';
 import { CATEGORIES, compressImage, shotUrl, rs, today, nowTime } from '../lib';
 
 function AmountInput({ value, onChange, autoFocus, label }) {
@@ -65,17 +65,34 @@ function DateRow({ date, setDate, time, setTime }) {
   );
 }
 
+/* ---------------- AI ne bhara: banner ---------------- */
+const AI_LABEL = { payer: 'Kis ne diye', amount: 'Raqam', forWhom: 'Kis ka hissa', category: 'Qisam', date: 'Tareekh' };
+function AiBanner({ ai }) {
+  if (!ai) return null;
+  const check = [...new Set([...(ai.missing || []), ...(ai.assumed || [])])];
+  return (
+    <div className="ai-banner">
+      <p className="ai-head"><Sparkles size={15} /> AI ne bhara hai. Dekh kar khud Save karo.</p>
+      <p className="ai-said">Aap ne kaha: <q>{ai.transcript}</q></p>
+      {ai.question && <p className="ai-q">{ai.question}</p>}
+      {check.length > 0 && <p className="ai-check-list">Peele khane zaroor dekho: {check.map((c) => AI_LABEL[c]).filter(Boolean).join(', ')}</p>}
+    </div>
+  );
+}
+const flag = (ai, ...f) => (ai && f.some((x) => ai.missing?.includes(x) || ai.assumed?.includes(x)) ? ' ai-check' : '');
+
 /* ---------------- Kharcha ---------------- */
-export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDelete, busy }) {
-  const initSplit = initial ? (['half', 'full', 'self', 'custom'].includes(initial.split) ? initial.split : 'custom') : 'half';
-  const [paidBy, setPaidBy] = useState(initial?.paidBy || me);
-  const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
-  const [note, setNote] = useState(initial?.note || '');
-  const [category, setCategory] = useState(initial?.category || 'sauda');
+export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, onSave, onDelete, busy }) {
+  const seed = initial || prefill;
+  const initSplit = seed ? (['half', 'full', 'self', 'custom'].includes(seed.split) ? seed.split : 'custom') : 'half';
+  const [paidBy, setPaidBy] = useState(initial ? initial.paidBy : prefill ? prefill.paidBy : me);
+  const [amount, setAmount] = useState(seed?.amount ? String(seed.amount) : '');
+  const [note, setNote] = useState(seed?.note || '');
+  const [category, setCategory] = useState(seed?.category || 'sauda');
   const [split, setSplit] = useState(initSplit);
-  const [custom, setCustom] = useState(initial && initSplit === 'custom' ? String(initial.calc?.owed ?? '') : '');
-  const [date, setDate] = useState(initial?.date || today());
-  const [time, setTime] = useState(initial?.time || nowTime());
+  const [custom, setCustom] = useState(seed && initSplit === 'custom' ? String(seed.calc?.owed ?? seed.owed ?? '') : '');
+  const [date, setDate] = useState(seed?.date || today());
+  const [time, setTime] = useState(seed?.time || nowTime());
 
   const other = names[otherId];
   const debtor = paidBy === me ? otherId : me;
@@ -84,8 +101,8 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
   const debtorName = debtor === me ? 'mera' : `${other} ka`;
   const payerName = paidBy === me ? 'mera' : `${other} ka`;
 
-  let preview = 'Raqam likho, hisaab yahan dikhega.';
-  if (amt > 0 && split === 'self') {
+  let preview = !paidBy ? 'Pehle chuno kis ne paise diye.' : 'Raqam likho, hisaab yahan dikhega.';
+  if (!paidBy) { /* upar wala hi */ } else if (amt > 0 && split === 'self') {
     preview = `Ye poora ${payerName} apna kharcha hai, hisaab mein kuch nahi badlega.`;
   } else if (amt > 0 && owed > 0) {
     preview = debtor === me ? `Aap ne ${other} ko ${rs(owed)} dene hain` : `${other} ne aap ko ${rs(owed)} dene hain`;
@@ -93,22 +110,23 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
 
   const submit = (ev) => {
     ev.preventDefault();
-    if (amt <= 0 || (owed <= 0 && split !== 'self')) return;
+    if (!paidBy || amt <= 0 || (owed <= 0 && split !== 'self')) return;
     onSave({ type: 'expense', amount: amt, note, category, paidBy, split, owed, date, time });
   };
 
   return (
     <form className="form" onSubmit={submit}>
-      <div className="field">
+      <AiBanner ai={ai} />
+      <div className={'field' + flag(ai, 'payer')}>
         <span className="field-label">Kis ne paise diye?</span>
         <Segmented name="paidBy" value={paidBy} onChange={setPaidBy}
           options={[{ value: me, label: 'Main ne', color: colors[me] }, { value: otherId, label: `${other} ne`, color: colors[otherId] }]} />
       </div>
 
-      <AmountInput label="Kul kitne diye?" value={amount} onChange={setAmount} autoFocus={!initial} />
+      <div className={flag(ai, 'amount').trim()}><AmountInput label="Kul kitne diye?" value={amount} onChange={setAmount} autoFocus={!initial && !prefill} /></div>
       <input className="text-field" placeholder="Kis cheez par? (sabzi, chai, program, kuch bhi)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
 
-      <div className="chips" role="radiogroup" aria-label="Qisam">
+      <div className={'chips' + flag(ai, 'category')} role="radiogroup" aria-label="Qisam">
         {CATEGORIES.map((c) => {
           const Icon = c.icon;
           return (
@@ -119,7 +137,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
         })}
       </div>
 
-      <div className="field">
+      <div className={'field' + flag(ai, 'forWhom')}>
         <span className="field-label">Ye kharcha kis ka tha?</span>
         <div className="split-grid">
           {[
@@ -142,7 +160,7 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
         )}
       </div>
 
-      <DateRow date={date} setDate={setDate} time={time} setTime={setTime} />
+      <div className={flag(ai, 'date').trim()}><DateRow date={date} setDate={setDate} time={time} setTime={setTime} /></div>
 
       <div className={'preview' + (amt > 0 && (owed > 0 || split === 'self') ? ' live' : '')}>
         <p>{preview}</p>
@@ -152,21 +170,21 @@ export function ExpenseForm({ me, otherId, names, colors, initial, onSave, onDel
 
       <div className="form-actions">
         {initial && <DeleteButton onDelete={onDelete} />}
-        <button className="btn primary" disabled={busy || amt <= 0 || (owed <= 0 && split !== 'self')}>{initial ? 'Tabdeeli save karo' : 'Kharcha save karo'}</button>
+        <button className="btn primary" disabled={busy || !paidBy || amt <= 0 || (owed <= 0 && split !== 'self')}>{initial ? 'Tabdeeli save karo' : 'Kharcha save karo'}</button>
       </div>
     </form>
   );
 }
 
 /* ---------------- Payment ---------------- */
-export function PaymentForm({ me, otherId, names, colors, balance, initial, prefillClear, onSave, onDelete, busy, loan }) {
+export function PaymentForm({ me, otherId, names, colors, balance, initial, prefill, ai, prefillClear, onSave, onDelete, busy, loan }) {
   const other = names[otherId];
   const defaultFrom = initial?.from || (loan ? otherId : balance.amount > 0 ? balance.from : me);
-  const [from, setFrom] = useState(defaultFrom);
-  const [amount, setAmount] = useState(initial ? String(initial.amount) : prefillClear && balance.amount > 0 ? String(Math.round(balance.amount)) : '');
-  const [note, setNote] = useState(initial?.note || '');
-  const [date, setDate] = useState(initial?.date || today());
-  const [time, setTime] = useState(initial?.time || nowTime());
+  const [from, setFrom] = useState(prefill ? prefill.from : defaultFrom);
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : prefill ? (prefill.amount ? String(prefill.amount) : '') : prefillClear && balance.amount > 0 ? String(Math.round(balance.amount)) : '');
+  const [note, setNote] = useState(initial?.note || prefill?.note || '');
+  const [date, setDate] = useState(initial?.date || prefill?.date || today());
+  const [time, setTime] = useState(initial?.time || prefill?.time || nowTime());
   const [shot, setShot] = useState(null); // naya screenshot (dataUrl)
   const [keepOld, setKeepOld] = useState(!!(initial && shotUrl(initial)));
   const [shotErr, setShotErr] = useState('');
@@ -201,7 +219,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
 
   const submit = (ev) => {
     ev.preventDefault();
-    if (amt <= 0) return;
+    if (amt <= 0 || !from) return;
     const body = { type: loan ? 'loan' : 'payment', amount: amt, from, note, date, time };
     if (shot) body.screenshot = shot;
     else if (initial && shotUrl(initial) && !keepOld) body.removeScreenshot = true;
@@ -212,18 +230,19 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
 
   return (
     <form className="form" onSubmit={submit}>
-      <div className="field">
+      <AiBanner ai={ai} />
+      <div className={'field' + flag(ai, 'payer')}>
         <span className="field-label">{loan ? 'Kis ne qarz diya?' : 'Kis ne paise bheje?'}</span>
         <Segmented name="from" value={from} onChange={setFrom}
           options={[{ value: me, label: 'Main ne', color: colors[me] }, { value: otherId, label: `${other} ne`, color: colors[otherId] }]} />
-        <p className="flow-line">{loan
+        <p className="flow-line">{!from ? 'Chuno kis ne diye' : loan
           ? (from === me ? `Aap ne ${other} ko qarz diya, ab ${other} ne wapas dena hai` : `${other} ne aap ko qarz diya, ab aap ne wapas dena hai`)
           : (from === me ? `Aap ne ${other} ko bheje` : `${other} ne aap ko bheje`)}</p>
       </div>
 
-      <AmountInput value={amount} onChange={setAmount} autoFocus={!initial} />
+      <div className={flag(ai, 'amount').trim()}><AmountInput value={amount} onChange={setAmount} autoFocus={!initial && !prefill} /></div>
 
-      {!initial && !loan && owedNow > 0 && (
+      {!initial && !prefill && !loan && owedNow > 0 && (
         <button type="button" className="quick-clear" onClick={() => setAmount(String(Math.round(owedNow)))}>
           Poora hisaab clear: <b>{rs(owedNow)}</b>
         </button>
@@ -258,7 +277,7 @@ export function PaymentForm({ me, otherId, names, colors, balance, initial, pref
 
       <div className="form-actions">
         {initial && <DeleteButton onDelete={onDelete} />}
-        <button className="btn primary" disabled={busy || amt <= 0}>{busy ? 'Save ho raha hai...' : initial ? 'Tabdeeli save karo' : loan ? 'Qarz save karo' : 'Payment save karo'}</button>
+        <button className="btn primary" disabled={busy || amt <= 0 || !from}>{busy ? 'Save ho raha hai...' : initial ? 'Tabdeeli save karo' : loan ? 'Qarz save karo' : 'Payment save karo'}</button>
       </div>
     </form>
   );

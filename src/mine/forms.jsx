@@ -76,10 +76,12 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
   const [note, setNote] = useState(initial?.note || '');
   const [date, setDate] = useState(initial?.date || today());
   const [time, setTime] = useState(initial?.time || nowTime());
+  // Purana qarz: pehle ka len-den, kisi account se paise nahi katenge
+  const [old, setOld] = useState(initial ? isLoan(initial.type) && !initial.accountId : !accounts.some((a) => !a.archived));
 
   const acc = accounts.find((a) => idOf(a) === accountId);
   const toAcc = accounts.find((a) => idOf(a) === toAccountId);
-  const cur = acc?.currency || 'PKR';
+  const cur = (isLoan(type) && old) ? 'PKR' : acc?.currency || 'PKR';
   const crossCur = type === 'transfer' && toAcc && toAcc.currency !== cur;
   const amt = Number(amount) || 0;
   const main = isLoan(type) ? 'loan' : type;
@@ -94,8 +96,10 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
   const submit = (e) => {
     e.preventDefault();
     if (problem) return;
-    if (accountId) LS.set('khata.lastAcc', accountId);
-    const body = { type, amount: type === 'adjust' ? adjSign * amt : amt, accountId, note, date, time };
+    if (accountId && !(isLoan(type) && old)) LS.set('khata.lastAcc', accountId);
+    const noAcc = isLoan(type) && old;
+    const body = { type, amount: type === 'adjust' ? adjSign * amt : amt, accountId: noAcc ? '' : accountId, note, date, time };
+    if (noAcc) body.old = true;
     if (type === 'expense' || type === 'income') body.category = category;
     if (type === 'transfer') { body.toAccountId = toAccountId; body.toAmount = crossCur ? Number(toAmount) : amt; }
     if (isLoan(type)) body.contactId = contactId;
@@ -155,8 +159,19 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
         </div>
       )}
 
-      <AccountPick accounts={accounts} balances={balances} value={accountId} onChange={setAccountId} onCreate={onCreateAccount}
-        label={type === 'transfer' ? 'Kis account se?' : type === 'income' || type === 'got_back' || type === 'borrow' ? 'Kis account mein aaye?' : type === 'adjust' ? 'Kaunsa account?' : isLoan(type) ? 'Kis account se diye? (agar chaho)' : 'Kis account se diye?'} />
+      {isLoan(type) && (
+        <div className="field">
+          <span className="field-label">Ye kab ka hai?</span>
+          <div className="seg two" role="radiogroup">
+            <button type="button" role="radio" aria-checked={!old} className={'seg-opt plain' + (!old ? ' on' : '')} onClick={() => setOld(false)}>Abhi ka</button>
+            <button type="button" role="radio" aria-checked={old} className={'seg-opt plain' + (old ? ' on' : '')} onClick={() => setOld(true)}>Purana (pehle ka)</button>
+          </div>
+          {old && <p className="hint">Pehle ka hisaab hai, is liye kisi account se paise nahi katenge. Neeche asal tareekh daal do (yaad na ho to aaj ki theek hai).</p>}
+        </div>
+      )}
+
+      {!(isLoan(type) && old) && <AccountPick accounts={accounts} balances={balances} value={accountId} onChange={setAccountId} onCreate={onCreateAccount}
+        label={type === 'transfer' ? 'Kis account se?' : type === 'income' || type === 'got_back' || type === 'borrow' ? 'Kis account mein aaye?' : type === 'adjust' ? 'Kaunsa account?' : isLoan(type) ? 'Kis account se diye?' : 'Kis account se diye?'} />}
 
       {type === 'transfer' && (
         <AccountPick accounts={accounts} balances={balances} value={toAccountId} onChange={setTo} exclude={accountId} onCreate={onCreateAccount} label="Kis account mein?" />
@@ -190,11 +205,13 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, onSave,
           {type === 'expense' && `${acc?.name} se ${money(amt, cur)} kharch`}
           {type === 'income' && `${acc?.name} mein ${money(amt, cur)} aaye`}
           {type === 'transfer' && `${acc?.name} se ${toAcc?.name} mein ${money(crossCur ? Number(toAmount) : amt, toAcc?.currency)}`}
+          {isLoan(type) && old && 'Purana: '}
           {type === 'lend' && `${who} ne aap ko ${money(amt, cur)} wapas dene hain`}
           {type === 'got_back' && `${who} se ${money(amt, cur)} wapas mile`}
           {type === 'borrow' && `Aap ne ${who} ko ${money(amt, cur)} wapas dene hain`}
           {type === 'paid_back' && `Aap ne ${who} ko ${money(amt, cur)} wapas diye`}
           {type === 'adjust' && `${acc?.name} ka balance ${adjSign > 0 ? 'barhega' : 'ghatega'}: ${money(amt, cur)}`}
+          {isLoan(type) && !old && acc && ` (${acc.name} ${type === 'lend' || type === 'paid_back' ? 'se katenge' : 'mein aayenge'})`}
         </p>
       )}
 

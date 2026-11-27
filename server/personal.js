@@ -56,6 +56,7 @@ const COLS = {
       if (['lend', 'borrow', 'got_back', 'paid_back'].includes(type)) {
         out.contactId = str(b.contactId, 64);
         if (!out.contactId) throw bad('Kis bande ke saath? chuno.');
+        out.old = !!b.old && !out.accountId; // purana qarz, kisi account se nahi
       }
       return out;
     },

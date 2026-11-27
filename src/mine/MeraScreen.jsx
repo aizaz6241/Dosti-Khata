@@ -16,7 +16,7 @@ export function TxnRow({ t, accounts, contacts, onOpen, i = 0, otherName = 'Dost
   const sign = t.type === 'transfer' ? 0 : t.type === 'adjust' ? Math.sign(t.amount) : TYPES[t.type]?.sign;
   const khataTitle = { expense: `${otherName} ke saath kharcha`, payment: t.type === 'khata_out' ? `${otherName} ko bheje` : `${otherName} se mile`, loan: t.type === 'khata_out' ? `${otherName} ko qarz` : `${otherName} se qarz` }[t.khataType];
   const title = t.note || (t.synthetic ? khataTitle : t.type === 'expense' || t.type === 'income' ? m.label : `${TYPES[t.type].label}${who ? `: ${who.name}` : ''}`);
-  const sub = t.type === 'transfer' ? `${acc?.name || '?'} se ${to?.name || '?'}` : t.synthetic ? `Dosti khata, ${acc?.name || '?'}` : [who && t.note ? who.name : null, acc?.name].filter(Boolean).join(', ');
+  const sub = t.type === 'transfer' ? `${acc?.name || '?'} se ${to?.name || '?'}` : t.synthetic ? `Dosti khata, ${acc?.name || '?'}` : [who && t.note ? who.name : null, acc?.name, !acc && t.contactId ? 'Purana hisaab' : null].filter(Boolean).join(', ');
   return (
     <motion.button className="entry" onClick={() => onOpen(t)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.02 }}>
       <span className={'entry-icon m-' + (sign > 0 ? 'in' : sign < 0 ? 'out' : 'mv')}><Icon size={18} /></span>
@@ -458,7 +458,7 @@ export function ContactDetail({ c, ledger, mine, onOpen, onAdd, onEdit }) {
           {hist.map((h) => (
             <button key={idOf(h)} className="ledger-row" onClick={() => onOpen(h)}>
               <span>{shortDay(h.date)}</span>
-              <span>{TYPES[h.type].label}{h.note ? <small>{h.note}</small> : null}</span>
+              <span>{TYPES[h.type].label}{!h.accountId ? <small>Purana</small> : null}{h.note ? <small>{h.note}</small> : null}</span>
               <span className={h.delta > 0 ? 'pos' : 'neg'}>{h.delta > 0 ? '+' : '−'}{money(Math.abs(h.delta), h.currency).replace('Rs ', '')}</span>
               <span>{money(h.running, h.currency).replace('Rs ', '')}</span>
             </button>

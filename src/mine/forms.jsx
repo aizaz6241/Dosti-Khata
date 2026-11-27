@@ -1,10 +1,11 @@
 // Mera Hisaab ke forms: len-den, account, banda, rates
 import { useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Plus, Check } from 'lucide-react';
 import { AmountInput, DeleteButton, DateRow } from '../components/Forms';
 import { today, nowTime, LS } from '../lib';
 import { idOf } from '../../server/money.js';
-import { EXPENSE, INCOME, KINDS, PRESETS, CURRENCIES, money } from './meta';
+import { EXPENSE, INCOME, KINDS, PRESETS, CURRENCIES, money, catList, CUSTOM_ICONS } from './meta';
 
 const LOAN_SUB = [
   { id: 'lend', t: 'Maine qarz diya', s: 'Woh mujhe wapas dega' },
@@ -47,20 +48,62 @@ function AccountPick({ accounts, balances, value, onChange, label, exclude, onCr
           const K = KINDS.find((k) => k.id === a.kind)?.icon || KINDS.at(-1).icon;
           const on = value === idOf(a);
           return (
-            <button type="button" key={idOf(a)} className={'acc-chip' + (on ? ' on' : '')} onClick={() => onChange(idOf(a))} aria-pressed={on}>
-              <K size={16} />
-              <span><b>{a.name}</b><small>{money(balances[idOf(a)] || 0, a.currency)}</small></span>
-            </button>
+            <motion.button type="button" key={idOf(a)} whileTap={{ scale: 0.96 }} className={'acc-opt k-' + (a.kind || 'other') + (on ? ' on' : '')} onClick={() => onChange(idOf(a))} aria-pressed={on}>
+              <span className="ao-ic"><K size={17} /></span>
+              <span className="ao-txt"><b>{a.name}</b><small>{money(balances[idOf(a)] || 0, a.currency)}</small></span>
+              {on && <motion.span className="ao-check" initial={{ scale: 0 }} animate={{ scale: 1 }}><Check size={13} strokeWidth={3} /></motion.span>}
+            </motion.button>
           );
         })}
-        <button type="button" className={'acc-chip add' + (adding ? ' on' : '')} onClick={() => setAdding((v) => !v)}><Plus size={16} /> Naya account</button>
+        <button type="button" className={'acc-opt add' + (adding ? ' on' : '')} onClick={() => setAdding((v) => !v)}><span className="ao-ic"><Plus size={17} /></span><span className="ao-txt"><b>Naya account</b></span></button>
       </div>
       {adding && <QuickAccount onCreate={onCreate} onDone={(id) => { setAdding(false); onChange(id); }} />}
     </div>
   );
 }
 
-export function TxnForm({ initial, preset, accounts, contacts, balances, rates = {}, onSave, onDelete, onCreateAccount, onCreateContact }) {
+// Categories ka saaf grid + apni nayi category
+const ICON_CHOICES = ['Tag', 'Gamepad2', 'Dumbbell', 'Baby', 'PawPrint', 'Wifi', 'Wrench', 'BookOpen', 'Music', 'Heart', 'Sparkles', 'Cigarette', 'Zap', 'Droplets', 'Bike', 'Gem', 'Camera', 'Gift', 'Plane', 'Coffee', 'Car', 'Laptop', 'Store', 'Dog'];
+function CategoryGrid({ kind, value, onChange, onCreate }) {
+  const list = catList(kind);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState('Tag');
+  const save = () => {
+    const label = name.trim(); if (!label) return;
+    const id = 'c_' + label.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) + Math.random().toString(36).slice(2, 6);
+    onCreate({ id, label, icon, kind });
+    onChange(id); setAdding(false); setName(''); setIcon('Tag');
+  };
+  return (
+    <div className="field">
+      <span className="field-label">{kind === 'income' ? 'Kahan se aaye?' : 'Kharche ki qisam'}</span>
+      <div className="cat-grid" role="radiogroup" aria-label="Qisam">
+        {list.map((c) => {
+          const Icon = c.icon; const on = value === c.id;
+          return (
+            <motion.button type="button" key={c.id} whileTap={{ scale: 0.93 }} role="radio" aria-checked={on} className={'cat-opt' + (on ? ' on' : '') + (kind === 'income' ? ' inc' : '')} onClick={() => onChange(c.id)}>
+              <span className="co-ic"><Icon size={19} /></span><span className="co-l">{c.label}</span>
+            </motion.button>
+          );
+        })}
+        {onCreate && <button type="button" className={'cat-opt add' + (adding ? ' on' : '')} onClick={() => setAdding((v) => !v)}><span className="co-ic"><Plus size={19} /></span><span className="co-l">Nayi</span></button>}
+      </div>
+      {adding && (
+        <motion.div className="quick-new new-cat" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
+          <input className="text-field" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'income' ? 'Naam (jaise YouTube, kiraya mila)' : 'Naam (jaise Gym, Cricket, Bike)'} maxLength={24} />
+          <span className="field-label">Nishan chuno</span>
+          <div className="icon-pick">
+            {ICON_CHOICES.map((n) => { const I = CUSTOM_ICONS[n]; return <button type="button" key={n} className={icon === n ? 'on' : ''} onClick={() => setIcon(n)} aria-label={n}><I size={18} /></button>; })}
+          </div>
+          <button type="button" className="btn primary" disabled={!name.trim()} onClick={save}><Check size={17} /> Category banao</button>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+export function TxnForm({ initial, preset, accounts, contacts, balances, rates = {}, onSave, onDelete, onCreateAccount, onCreateContact, onCreateCategory }) {
   const [newPerson, setNewPerson] = useState(null);
   const startType = initial?.type || preset?.type || 'expense';
   const [type, setType] = useState(startType);
@@ -114,7 +157,6 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
     onSave(body);
   };
 
-  const cats = type === 'income' ? INCOME : EXPENSE;
   const who = people.find((c) => idOf(c) === contactId)?.name || 'woh';
 
   return (
@@ -152,11 +194,13 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
       {isLoan(type) && (
         <div className="field">
           <span className="field-label">Kis ke saath?</span>
-          <div className="chips wrap">
+          <div className="person-pick">
             {people.map((c) => (
-              <button type="button" key={idOf(c)} className={'chip' + (contactId === idOf(c) ? ' on' : '')} onClick={() => setContact(idOf(c))}>{c.name}</button>
+              <motion.button type="button" key={idOf(c)} whileTap={{ scale: 0.95 }} className={'person-opt' + (contactId === idOf(c) ? ' on' : '')} onClick={() => setContact(idOf(c))}>
+                <span className="po-av">{c.name[0]}</span><span className="po-n">{c.name}</span>
+              </motion.button>
             ))}
-            <button type="button" className={'chip ghost' + (newPerson != null ? ' on' : '')} onClick={() => setNewPerson(newPerson == null ? '' : null)}><Plus size={15} /> Naya banda</button>
+            <button type="button" className={'person-opt add chip ghost' + (newPerson != null ? ' on' : '')} onClick={() => setNewPerson(newPerson == null ? '' : null)}><span className="po-av"><Plus size={15} /></span><span className="po-n">Naya banda</span></button>
           </div>
           {newPerson != null && (
             <div className="quick-new row">
@@ -199,18 +243,7 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
         </div>
       )}
 
-      {(type === 'expense' || type === 'income') && (
-        <div className="chips wrap" role="radiogroup" aria-label="Qisam">
-          {cats.map((c) => {
-            const Icon = c.icon;
-            return (
-              <button type="button" key={c.id} role="radio" aria-checked={category === c.id} className={'chip' + (category === c.id ? ' on' : '')} onClick={() => setCategory(c.id)}>
-                <Icon size={15} /> {c.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {(type === 'expense' || type === 'income') && <CategoryGrid kind={type} value={category} onChange={setCategory} onCreate={onCreateCategory} />}
 
       <input className="text-field" placeholder={type === 'expense' ? 'Kis cheez par? (agar chaho)' : 'Note (agar chaho)'} value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
       <DateRow date={date} setDate={setDate} time={time} setTime={setTime} />

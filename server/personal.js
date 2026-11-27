@@ -44,8 +44,9 @@ const COLS = {
         accountId: b.accountId ? str(b.accountId, 64) : '',
       };
       if (['expense', 'income', 'transfer', 'adjust'].includes(type) && !out.accountId) throw bad('Account chuno.');
-      if (type === 'expense') out.category = EXPENSE_CATS.includes(b.category) ? b.category : 'other';
-      if (type === 'income') out.category = INCOME_CATS.includes(b.category) ? b.category : 'other_in';
+      const custom = /^c_[a-z0-9]{3,24}$/.test(String(b.category || '')); // apni banai hui category
+      if (type === 'expense') out.category = EXPENSE_CATS.includes(b.category) || custom ? b.category : 'other';
+      if (type === 'income') out.category = INCOME_CATS.includes(b.category) || custom ? b.category : 'other_in';
       if (type === 'transfer') {
         out.toAccountId = str(b.toAccountId, 64);
         if (!out.toAccountId || out.toAccountId === out.accountId) throw bad('Kis account mein bhejna hai? chuno.');
@@ -68,7 +69,10 @@ const COLS = {
       for (const c of CURRENCIES) if (c !== 'PKR' && Number(b.rates?.[c]) > 0) rates[c] = round(b.rates[c]);
       const manual = Array.isArray(b.manual) ? CURRENCIES.filter((c) => c !== 'PKR' && b.manual.includes(c)) : [];
       const budget = Number(b.budget) > 0 && Number(b.budget) < 1e10 ? Math.round(Number(b.budget)) : 0;
-      return { rates, manual, budget };
+      const customCats = (Array.isArray(b.customCats) ? b.customCats : []).slice(0, 60)
+        .filter((c) => /^c_[a-z0-9]{3,24}$/.test(String(c?.id || '')) && str(c.label, 24))
+        .map((c) => ({ id: c.id, label: str(c.label, 24), icon: /^[A-Za-z0-9]{2,20}$/.test(c.icon || '') ? c.icon : 'Tag', kind: c.kind === 'income' ? 'income' : 'expense' }));
+      return { rates, manual, budget, customCats };
     },
   },
   // Dosti khata ki entry kis account se gayi / mein aayi (sirf aap ko pata)

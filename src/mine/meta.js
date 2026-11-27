@@ -3,6 +3,7 @@ import {
   Utensils, ShoppingBasket, Coffee, House, Receipt, Car, Fuel, Shirt, Pill, Scissors, HeartHandshake, GraduationCap,
   MonitorSmartphone, Gift, Plane, CircleDot, Briefcase, Laptop, Store, RotateCcw, Wallet, Landmark, Smartphone, Bitcoin,
   PiggyBank, ArrowLeftRight, HandCoins, Undo2, ArrowDownLeft, ArrowUpRight, SlidersHorizontal, Users,
+  Tag, Gamepad2, Dumbbell, Baby, PawPrint, Wifi, Wrench, BookOpen, Music, Heart, Sparkles, Cigarette, Zap, Droplets, Bike, Gem, Camera, Dog,
 } from 'lucide-react';
 
 export const EXPENSE = [
@@ -63,9 +64,23 @@ export const TYPES = {
   khata_in: { label: 'Dosti khata', icon: Users, sign: 1 },
 };
 
+// Apni banai hui categories (prefs mein save hoti hain)
+export const CUSTOM_ICONS = { Tag, Gamepad2, Dumbbell, Baby, PawPrint, Wifi, Wrench, BookOpen, Music, Heart, Sparkles, Cigarette, Zap, Droplets, Bike, Gem, Camera, Dog, Gift, Plane, Coffee, Car, Laptop, Store };
+let CUSTOM = [];
+export const setCustomCats = (list) => { CUSTOM = (list || []).map((c) => ({ ...c, icon: CUSTOM_ICONS[c.icon] || Tag, iconName: c.icon, custom: true })); };
+export const catList = (kind) => {
+  const base = kind === 'income' ? INCOME : EXPENSE;
+  const mine = CUSTOM.filter((c) => c.kind === kind);
+  return [...base.slice(0, -1), ...mine, base.at(-1)]; // "Kuch aur" aakhir mein
+};
+export const catInfo = (id, kind = 'expense') => {
+  const base = kind === 'income' ? INCOME : EXPENSE;
+  return base.find((c) => c.id === id) || CUSTOM.find((c) => c.id === id) || base.at(-1);
+};
+
 export const catMeta = (t) => {
-  if (t.type === 'expense') return EXPENSE.find((c) => c.id === t.category) || EXPENSE.at(-1);
-  if (t.type === 'income') return INCOME.find((c) => c.id === t.category) || INCOME.at(-1);
+  if (t.type === 'expense') return catInfo(t.category, 'expense');
+  if (t.type === 'income') return catInfo(t.category, 'income');
   return { id: t.type, ...TYPES[t.type] };
 };
 export const kindMeta = (k) => KINDS.find((x) => x.id === k) || KINDS.at(-1);

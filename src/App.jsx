@@ -11,6 +11,7 @@ import { periodOf, periodLabel } from './mine/period';
 import AccountLink from './mine/AccountLink';
 import ModeSwitch from './components/ModeSwitch';
 import { TxnForm, AccountForm, ContactForm, RatesForm } from './mine/forms';
+import { setCustomCats } from './mine/meta';
 import { usePush } from './push';
 import { chime } from './chime';
 import Sheet from './components/Sheet';
@@ -108,6 +109,7 @@ export default function App() {
   // Mera Hisaab: phone par hi hisaab (offline bhi). Dosti khata bhi is mein gina jata hai.
   const mera = useMemo(() => {
     const mine = applyMine(sync.mine, sync.queue, me);
+    setCustomCats(mine.prefs?.customCats);
     const rates = effectiveRates(mine.prefs, live?.rates);
     const rows = data?.rows || [];
     const flows = khataFlows(mine.links, rows, me); // khate ki entries jo kisi account se judi hain
@@ -261,7 +263,8 @@ export default function App() {
     } catch (e) { say('PDF nahi bana: ' + e.message); }
   };
   const pickRange = (value, onApply) => setSheet({ kind: 'range', value, onApply });
-  const prefsBase = { rates: mera.mine.prefs?.rates || {}, manual: mera.mine.prefs?.manual || [], budget: Number(mera.mine.prefs?.budget) || 0 };
+  const prefsBase = { rates: mera.mine.prefs?.rates || {}, manual: mera.mine.prefs?.manual || [], budget: Number(mera.mine.prefs?.budget) || 0, customCats: mera.mine.prefs?.customCats || [] };
+  const addCategory = (c) => { sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: { ...prefsBase, customCats: [...prefsBase.customCats, c] } }); haptic(10); say(`"${c.label}" category ban gayi`); };
   const savePrefs = async (b, msg) => { await sync.enqueue({ col: 'prefs', kind: 'create', key: 'prefs', body: { ...prefsBase, ...b } }); setSheet(null); doneMsg(msg); };
   const mcommon = { mine: mera.mine, otherName, rates: mera.rates, live, onRates: () => setSheet({ kind: 'rates' }), onNewAccount: () => setSheet({ kind: 'account-edit' }), onOpenAccount: (a) => setSheet({ kind: 'account', row: a }), onAdd: (type) => setSheet({ kind: 'ptx', preset: { type } }) };
 
@@ -341,7 +344,7 @@ export default function App() {
   const mp = { accounts: mera.mine.accounts, contacts: mera.mine.contacts, balances: mera.balances, onCreateAccount: quickAccount, onCreateContact: quickContact };
   if (s?.kind === 'ptx') {
     sheetTitle = s.row ? 'Len-den badlo' : 'Mera len-den';
-    sheetBody = <TxnForm key={s.row ? idOf(s.row) : 'new-' + (s.preset?.type || '')} {...mp} rates={mera.rates} initial={s.row} preset={s.preset}
+    sheetBody = <TxnForm key={s.row ? idOf(s.row) : 'new-' + (s.preset?.type || '')} {...mp} rates={mera.rates} onCreateCategory={addCategory} initial={s.row} preset={s.preset}
       onSave={async (b) => { await mSave('ptx', b, s.row); haptic(12); setSheet(s.back || null); doneMsg(s.row ? 'Tabdeeli save ho gayi' : 'Save ho gaya'); }}
       onDelete={async () => { await mRemove('ptx', s.row); setSheet(s.back || null); doneMsg('Delete ho gaya'); }} />;
   }

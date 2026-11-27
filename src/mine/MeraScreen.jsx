@@ -7,7 +7,7 @@ import { dayLabel, monthName, monthShort, shortDay, thisMonth, timeLabel, today 
 import PeriodBar from './PeriodBar';
 import { Donut, Bars, PaceLine, CAT_COLORS, OTHER_COLOR } from './charts';
 import { buckets, fmtDay, periodOf, isCurrent, addDays, daysBetween, weekday, WD } from './period';
-import { catMeta, kindMeta, money, EXPENSE, INCOME, KINDS, TYPES } from './meta';
+import { catMeta, catInfo, kindMeta, money, EXPENSE, INCOME, KINDS, TYPES } from './meta';
 
 export function TxnRow({ t, accounts, contacts, onOpen, i = 0, otherName = 'Dost' }) {
   const m = catMeta(t);
@@ -215,7 +215,7 @@ export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, re
   });
   const daily = bk.length && bk[0].from === bk[0].to;
   const cats = Object.entries(r.byCat).sort((a, b) => b[1] - a[1]);
-  const donut = cats.slice(0, cats.length > 6 ? 5 : 6).map(([id, v], i) => ({ id, v, label: (EXPENSE.find((x) => x.id === id) || EXPENSE.at(-1)).label, color: CAT_COLORS[i] }));
+  const donut = cats.slice(0, cats.length > 6 ? 5 : 6).map(([id, v], i) => ({ id, v, label: catInfo(id).label, color: CAT_COLORS[i] }));
   if (cats.length > 6) donut.push({ id: 'baqi', label: 'Baqi sab', v: cats.slice(5).reduce((a, [, v]) => a + v, 0), color: OTHER_COLOR });
   const inc = Object.entries(r.inCat).sort((a, b) => b[1] - a[1]);
   // Raftar: jama hota kharcha (din ba din)
@@ -262,7 +262,7 @@ export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, re
           <div><span>Roz ka avg</span><b>{money(r.perDay)}</b></div>
         </div>
         <div className="insights">
-          {topCat && <p><Flame size={16} /> Sab se zyada <b>{(EXPENSE.find((x) => x.id === topCat[0]) || EXPENSE.at(-1)).label}</b> par: {Math.round((topCat[1] / r.spent) * 100)}%</p>}
+          {topCat && <p><Flame size={16} /> Sab se zyada <b>{catInfo(topCat[0]).label}</b> par: {Math.round((topCat[1] / r.spent) * 100)}%</p>}
           {r.income > 0 && <p><PiggyBank size={16} /> Aamdani ka <b>{Math.round((r.saved / r.income) * 100)}%</b> {r.saved >= 0 ? 'bacha' : 'zyada kharch hua'}</p>}
           {projection != null && <p><Gauge size={16} /> Is raftar se {isMonth ? 'mahina' : 'ye muddat'} <b>{money(projection)}</b> par khatam hogi</p>}
           {r.khata > 0 && <p><Users size={16} /> Is mein {otherName} wale khate ka hissa <b>{money(r.khata)}</b></p>}
@@ -320,7 +320,7 @@ export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, re
           <header className="panel-head"><h2>Sab se bare kharche</h2></header>
           <ol className="top-list">
             {r.top.map((x, i) => {
-              const c = EXPENSE.find((e) => e.id === (x.category || 'other')) || EXPENSE.at(-1); const I = c.icon;
+              const c = catInfo(x.category || 'other'); const I = c.icon;
               return <li key={i}><span className="entry-icon m-out"><I size={16} /></span><span className="tl-main"><b>{x.note || c.label}</b><small>{dayLabel(x.date)}{x.khata ? `, ${otherName} khata` : ''}</small></span><b>{money(x.pkr)}</b></li>;
             })}
           </ol>
@@ -332,7 +332,7 @@ export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, re
           <header className="panel-head"><h2>Aamdani kahan se</h2></header>
           <div className="cats">
             {inc.map(([id, v]) => {
-              const c = INCOME.find((x) => x.id === id) || INCOME.at(-1); const I = c.icon;
+              const c = catInfo(id, 'income'); const I = c.icon;
               return (
                 <div key={id} className="cat-row">
                   <I size={17} /><span className="cat-name">{c.label}</span>

@@ -1,6 +1,6 @@
 // Poora hisaab PDF mein (Claude / ChatGPT ko de kar mashwara lene ke liye bhi)
 import { idOf, monthReport, toPKR } from '../../server/money.js';
-import { catMeta, kindMeta, TYPES, EXPENSE, INCOME } from './meta';
+import { catMeta, catInfo, kindMeta, TYPES } from './meta';
 import { catOf, view, visible } from '../lib';
 
 const fmt = (n, cur = 'PKR') => {
@@ -73,9 +73,9 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
   }
   head(range ? `Kis cheez par kharcha (${range.label})` : `Is mahine (${months[0]}) kis cheez par kharcha`);
   const cats = Object.entries(r0.byCat).sort((a, b) => b[1] - a[1]);
-  table(['Qisam', 'Raqam', 'Hissa'], cats.length ? cats.map(([c, v]) => [EXPENSE.find((x) => x.id === c)?.label || c, fmt(v), `${Math.round((v / (r0.spent || 1)) * 100)}%`]) : [['Is mahine koi kharcha nahi', '', '']]);
+  table(['Qisam', 'Raqam', 'Hissa'], cats.length ? cats.map(([c, v]) => [catInfo(c).label, fmt(v), `${Math.round((v / (r0.spent || 1)) * 100)}%`]) : [['Is mahine koi kharcha nahi', '', '']]);
   const inc = Object.entries(r0.inCat);
-  if (inc.length) { head(range ? 'Is muddat ki aamdani' : 'Is mahine aamdani'); table(['Qisam', 'Raqam'], inc.map(([c, v]) => [INCOME.find((x) => x.id === c)?.label || c, fmt(v)])); }
+  if (inc.length) { head(range ? 'Is muddat ki aamdani' : 'Is mahine aamdani'); table(['Qisam', 'Raqam'], inc.map(([c, v]) => [catInfo(c, 'income').label, fmt(v)])); }
 
   head('Logon ka khata');
   const pc = mine.contacts.filter((c) => !c.archived);

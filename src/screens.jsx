@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight, ChevronLeft, MessageCircle, Plus, ArrowUpRight, Smartphone, X, Delete, Bell, Share, SquarePlus, EllipsisVertical, Download } from 'lucide-react';
+import { ChevronRight, ChevronLeft, MessageCircle, Plus, ArrowUpRight, Smartphone, X, Delete, Bell, Share, SquarePlus, EllipsisVertical, Download, Search } from 'lucide-react';
 import Tarazu from './components/Tarazu';
 import EntryRow from './components/EntryRow';
-import { catOf, dayLabel, monthName, monthShort, rs, shortDay, thisMonth, visible, LS } from './lib';
+import { catOf, dayLabel, monthName, monthShort, rs, shortDay, thisMonth, visible, view, LS } from './lib';
 
 /* ---------------- Lock: account chuno, phir PIN ---------------- */
 export function Lock({ people, colors, onLogin, error, busy }) {
@@ -67,9 +67,10 @@ export function Lock({ people, colors, onLogin, error, busy }) {
 }
 
 /* ---------------- Home ---------------- */
-export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata, canInstall, onInstall, onDismissInstall, canNotify, onNotify }) {
+export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata, canInstall, onInstall, onDismissInstall, canNotify, onNotify, onConfirm }) {
   const [notifyHidden, setNotifyHidden] = useState(false);
-  const { balance, stats } = data;
+  const { balance } = data;
+  const stats = data.homeStats;
   const entries = data.entries.filter(visible(me));
   const other = names[otherId];
   const owedToMe = balance.amount > 0 && balance.to === me;
@@ -106,6 +107,17 @@ export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata,
         {iOwe && <button className="hero-link" onClick={() => onAdd('payment', { clear: true })}>Poora {rs(balance.amount)} ek saath clear karo</button>}
         {owedToMe && <button className="hero-link" onClick={wa}><MessageCircle size={15} /> WhatsApp par {other} ko yaad dilao</button>}
       </section>
+
+      {entries.filter((e) => e.type !== 'expense' && e.to === me && !e.confirmedAt).slice(0, 3).map((e) => (
+        <motion.div key={e._id} className="confirm-card" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <div>
+            <strong>{other} ne {rs(e.amount)} {e.type === 'loan' ? 'qarz diya' : 'bheje'}</strong>
+            <span>{e.note ? `${e.note}, ` : ''}{dayLabel(e.date)}. Mil gaye?</span>
+          </div>
+          <button className="btn small ok" onClick={() => onConfirm(e)}>Haan, mil gaye</button>
+          <button className="btn small ghost-s" onClick={() => onOpen(e)}>Dekho</button>
+        </motion.div>
+      ))}
 
       {canInstall && (
         <motion.div className="install-card" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -169,6 +181,15 @@ export function Home({ data, me, otherId, names, colors, onAdd, onOpen, goKhata,
 /* ---------------- Khata ---------------- */
 export function Khata({ data, me, otherId, names, colors, onOpen, month, setMonth }) {
   const [filter, setFilter] = useState('all');
+  const [q, setQ] = useState('');
+  const query = q.trim().toLowerCase();
+  // Dhoondo: naam, qisam, raqam, ya note
+  const matches = (e) => {
+    if (!query) return true;
+    const v = view(e, me, names);
+    const hay = [e.note, catOf(e.type === 'expense' ? e.category : e.type).label, v.line, String(Math.round(v.amount)), String(Math.round(e.amount))].join(' ').toLowerCase();
+    return query.split(/\s+/).every((w) => hay.includes(w.replace(/,/g, '')));
+  };
   const months = useMemo(() => [...new Set([thisMonth(), ...data.months])].sort().reverse(), [data.months]);
   const other = names[otherId];
   const FILTERS = [
@@ -180,8 +201,8 @@ export function Khata({ data, me, otherId, names, colors, onOpen, month, setMont
     { id: 'loan', label: 'Qarz' },
   ];
 
-  const list = data.entries.filter(visible(me)).filter((e) => {
-    if (month !== 'all' && e.date.slice(0, 7) !== month) return false;
+  const list = data.entries.filter(visible(me)).filter(matches).filter((e) => {
+    if (!query && month !== 'all' && e.date.slice(0, 7) !== month) return false;
     if (filter === 'baqi') return e.type !== 'payment' && e.calc.left > 0;
     if (filter === 'theirs') return e.type === 'expense' && e.paidBy === otherId;
     if (filter === 'mine') return e.type === 'expense' && e.paidBy === me;
@@ -202,13 +223,20 @@ export function Khata({ data, me, otherId, names, colors, onOpen, month, setMont
         <p>Aap aur {other} ka len-den, aur kya clear ho chuka hai</p>
       </header>
 
-      <div className="scroller months" role="tablist" aria-label="Mahina">
+      <label className="search">
+        <Search size={19} className="s-icon" />
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Dhoondo: petrol, pizza, 850..." aria-label="Dhoondo" enterKeyHint="search" />
+        {q && <button className="icon-btn s-clear" onClick={() => setQ('')} aria-label="Saaf karo"><X size={17} /></button>}
+      </label>
+      {query && <p className="search-note">{list.length} {list.length === 1 ? 'entry' : 'entries'} mili, saare mahinon mein</p>}
+
+      {!query && <div className="scroller months" role="tablist" aria-label="Mahina">
         {[...months, 'all'].map((m) => (
           <button key={m} role="tab" aria-selected={month === m} className={'chip' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>
             {m === 'all' ? 'Shuru se' : monthShort(m)}
           </button>
         ))}
-      </div>
+      </div>}
       <div className="scroller" role="tablist" aria-label="Filter">
         {FILTERS.map((f) => (
           <button key={f.id} role="tab" aria-selected={filter === f.id} className={'chip ghost' + (filter === f.id ? ' on' : '')} onClick={() => setFilter(f.id)}>{f.label}</button>

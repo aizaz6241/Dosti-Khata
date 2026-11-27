@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Pencil, Lock } from 'lucide-react';
+import { Pencil, Lock, BadgeCheck, Hourglass } from 'lucide-react';
 import { cap, catOf, dayLabel, shotUrl, rs, timeLabel, view } from '../lib';
 import { StatusPill } from './EntryRow';
+import { changeLines, ChangeList } from './Activity';
 
-export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen }) {
+const whenAt = (iso) => {
+  const d = new Date(iso);
+  const day = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  let h = d.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  return `${dayLabel(day)}, ${h}:${String(d.getMinutes()).padStart(2, '0')} ${ap}`;
+};
+
+export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen, onConfirm }) {
   const [zoom, setZoom] = useState(false);
   const c = e.calc;
   const isPay = e.type === 'payment';
@@ -30,6 +38,17 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
         </div>
       </div>
 
+      {e.edits?.length > 0 && (() => {
+        const first = e.edits[0].changes.find((c) => c.f === 'share');
+        const last = [...e.edits].reverse().find((a) => a.changes.some((c) => c.f === 'share'));
+        const lc = last?.changes.find((c) => c.f === 'share');
+        return (
+          <p className="edited-banner">
+            <Pencil size={14} /> Ye entry {e.edits.length} dafa badli gayi{first && lc ? `. Pehle ${rs(first.from)} thi, ab ${rs(lc.to)} hai` : ''}.
+          </p>
+        );
+      })()}
+
       <dl className="facts">
         <div><dt>Kya hua</dt><dd>{v.line}</dd></div>
         {isPay ? (
@@ -45,6 +64,16 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
         <div><dt>Haalat</dt><dd><StatusPill e={e} /></dd></div>
         {e.createdBy && <div><dt>Likha</dt><dd>{e.createdBy === me ? 'Aap ne' : `${names[e.createdBy]} ne`}</dd></div>}
       </dl>
+
+      {e.type !== 'expense' && (
+        e.confirmedAt ? (
+          <p className="confirm-done"><BadgeCheck size={18} /> {e.confirmedBy === me ? 'Aap' : names[e.confirmedBy]} ne tasdeeq ki ke {e.type === 'loan' ? 'qarz' : 'paise'} mil gaye<small>{whenAt(e.confirmedAt)}</small></p>
+        ) : e.to === me ? (
+          <button className="btn confirm wide" onClick={() => onConfirm(e)}><BadgeCheck size={19} /> Haan, {rs(e.amount)} mil gaye</button>
+        ) : (
+          <p className="confirm-wait"><Hourglass size={16} /> {names[e.to]} ki tasdeeq baqi hai ke {e.type === 'loan' ? 'qarz' : 'paise'} mil gaye</p>
+        )
+      )}
 
       {shot && (
         <section className="shot">
@@ -68,6 +97,23 @@ export default function EntryDetail({ e, me, byId, names, colors, onEdit, onOpen
               </button>
             );
           })}
+        </section>
+      )}
+
+      {e.history?.length > 0 && (
+        <section className="history">
+          <h3>Is entry ki history</h3>
+          <ol>
+            {[...e.history].reverse().map((a) => (
+              <li key={a._id}>
+                <span className="h-dot" style={{ '--c': colors[a.by] }} />
+                <div>
+                  <p><span><b>{a.by === me ? 'Aap' : names[a.by]}</b> ne {{ create: 'likhi', update: 'badli', confirm: 'tasdeeq ki: mil gaye ✓' }[a.action] || 'badli'}</span><small>{whenAt(a.at)}</small></p>
+                  {a.action === 'update' && <ChangeList lines={changeLines(a, me, names)} />}
+                </div>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 

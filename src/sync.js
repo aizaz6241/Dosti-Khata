@@ -30,10 +30,16 @@ export function applyQueue(rows, queue, me, ids) {
   for (const op of queue) {
     const i = find(op.key);
     if (op.kind === 'delete') { if (i >= 0) out.splice(i, 1); continue; }
-    const shot = op.body.screenshot ? { fileUrl: op.body.screenshot } : op.body.removeScreenshot ? { fileUrl: null, fileId: null } : {};
-    const data = { ...normalize(op.body, ids), ...shot, pending: true };
+    if (op.kind === 'confirm') { if (i >= 0) out[i] = { ...out[i], confirmedAt: new Date(op.at).toISOString(), confirmedBy: me, pending: true }; continue; }
+    const body = op.body || {};
+    const shot = body.screenshot ? { fileUrl: body.screenshot } : body.removeScreenshot ? { fileUrl: null, fileId: null } : {};
+    const data = { ...normalize(body, ids), ...shot, pending: true };
     if (op.kind === 'create' && i < 0) out.push({ ...data, _id: op.key, clientId: op.key, createdBy: me, createdAt: new Date(op.at).toISOString() });
-    else if (i >= 0) out[i] = { ...out[i], ...data };
+    else if (i >= 0) {
+      const prev = out[i];
+      const reset = prev.confirmedAt && (data.amount !== prev.amount || data.from !== prev.from) ? { confirmedAt: null, confirmedBy: null } : {};
+      out[i] = { ...prev, ...data, ...reset };
+    }
   }
   return out;
 }
@@ -42,16 +48,16 @@ export function applyQueue(rows, queue, me, ids) {
 function mergeOp(queue, op) {
   const q = [...queue];
   const idx = (kind) => q.findIndex((o) => o.key === op.key && o.kind === kind);
-  if (op.kind === 'create') return [...q, op];
+  if (op.kind === 'create' || op.kind === 'confirm') return [...q, op];
   const c = idx('create');
   if (op.kind === 'update') {
-    if (c >= 0) { q[c] = { ...q[c], body: mergeBody(q[c].body, op.body) }; return q; }
+    if (c >= 0) { q[c] = { ...q[c], body: mergeBody(q[c].body, op.body), rev: (q[c].rev || 0) + 1 }; return q; }
     const u = idx('update');
-    if (u >= 0) { q[u] = { ...q[u], body: mergeBody(q[u].body, op.body), at: op.at }; return q; }
+    if (u >= 0) { q[u] = { ...q[u], body: mergeBody(q[u].body, op.body), at: op.at, rev: (q[u].rev || 0) + 1 }; return q; }
     return [...q, op];
   }
-  // delete
-  if (c >= 0) return q.filter((o) => o.key !== op.key); // server tak gaya hi nahi tha
+  // delete: baqi kaam hata do. Delete phir bhi bhejo, kyun ke ho sakta hai pehli koshish
+  // server tak pohanch gayi ho (jawab kho gaya ho). Na pohanchi ho to server "nahi mili" kahega, koi baat nahi.
   return [...q.filter((o) => o.key !== op.key), op];
 }
 function mergeBody(a, b) {
@@ -64,12 +70,26 @@ function mergeBody(a, b) {
 
 export function useKhata({ token, onError, onUnauthorized }) {
   const [rows, setRows] = useState(() => LS.get(ROWS, null));
+  const [activity, setActivity] = useState(() => LS.get('khata.activity', []));
   const [queue, setQueue] = useState([]);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [live, setLive] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const qRef = useRef([]);
   const flushing = useRef(false);
+  const inflight = useRef(null); // abhi server ko ja raha kaam
+  // Phone mein rakhi line pehle load ho, phir koi naya kaam jude
+  const ready = useRef(null);
+  if (!ready.current) {
+    ready.current = (async () => {
+      let q = [];
+      try { q = (await idbGet(QUEUE)) || []; } catch { q = LS.get(QUEUE, []); }
+      q = q.map((o) => (o.id ? o : { ...o, id: newId() }));
+      qRef.current = q;
+      setQueue(q);
+    })();
+  }
+
   const cb = useRef({ onError, onUnauthorized });
   cb.current = { onError, onUnauthorized };
 
@@ -85,6 +105,8 @@ export function useKhata({ token, onError, onUnauthorized }) {
       const r = await api('/entries');
       setRows(r.rows);
       LS.set(ROWS, r.rows);
+      setActivity(r.activity || []);
+      LS.set('khata.activity', r.activity || []);
       setOnline(true);
     } catch (e) {
       if (e.status === 401) cb.current.onUnauthorized?.();
@@ -94,24 +116,35 @@ export function useKhata({ token, onError, onUnauthorized }) {
 
   const flush = useCallback(async () => {
     if (flushing.current || !LS.get('khata.token')) return;
+    await ready.current;
+    if (flushing.current) return;
     flushing.current = true;
     setSyncing(true);
     try {
       while (qRef.current.length) {
         const op = qRef.current[0];
+        inflight.current = op;
         try {
           if (op.kind === 'create') await api('/entries', { method: 'POST', body: { ...op.body, clientId: op.key } });
           else if (op.kind === 'update') await api('/entries/' + encodeURIComponent(op.key), { method: 'PUT', body: op.body });
+          else if (op.kind === 'confirm') await api('/entries/' + encodeURIComponent(op.key) + '/confirm', { method: 'POST' });
           else await api('/entries/' + encodeURIComponent(op.key), { method: 'DELETE' });
         } catch (e) {
           if (!e.status || e.status >= 500 || e.status === 429) { setOnline(!!e.status); break; } // net nahi / server so raha: baad mein
           if (e.status === 401) { cb.current.onUnauthorized?.(); break; }
           if (!(op.kind === 'delete' && e.status === 404)) cb.current.onError?.(e.message);
         }
-        // kaam ho gaya (ya server ne mana kar diya): line se hatao
-        await saveQueue(qRef.current.filter((o) => o !== op));
+        // Kaam ho gaya (ya server ne mana kar diya): line se hatao.
+        // Agar bhejte waqt user ne isi entry ko badal diya tha, to woh tabdeeli agli baar "update" ban kar jaye.
+        const now = qRef.current.find((o) => o.id === op.id);
+        let next = qRef.current.filter((o) => o.id !== op.id);
+        if (now && (now.rev || 0) !== (op.rev || 0) && now.kind !== 'delete') {
+          next = [{ ...now, kind: 'update', rev: 0 }, ...next];
+        }
+        await saveQueue(next);
       }
     } finally {
+      inflight.current = null;
       flushing.current = false;
       setSyncing(false);
     }
@@ -119,21 +152,19 @@ export function useKhata({ token, onError, onUnauthorized }) {
   }, [pull, saveQueue]);
 
   const enqueue = useCallback(async (op) => {
-    const full = { ...op, at: Date.now() };
-    await saveQueue(mergeOp(qRef.current, full));
+    await ready.current;
+    const full = { ...op, id: newId(), rev: 0, at: Date.now() };
+    let next = mergeOp(qRef.current, full);
+    // Jo entry abhi server ko ja rahi hai, us ka delete line mein zaroor rahe
+    const fly = inflight.current;
+    if (op.kind === 'delete' && fly && fly.key === op.key) {
+      next = [...next.filter((o) => o.key !== op.key), full];
+    }
+    await saveQueue(next);
     flush();
   }, [flush, saveQueue]);
 
-  // Shuru mein: phone mein rakhi line load karo
-  useEffect(() => {
-    (async () => {
-      let q = [];
-      try { q = (await idbGet(QUEUE)) || []; } catch { q = LS.get(QUEUE, []); }
-      qRef.current = q;
-      setQueue(q);
-      if (token) flush();
-    })();
-  }, [token, flush]);
+  useEffect(() => { if (token) ready.current.then(flush); }, [token, flush]);
 
   // Net aaye/jaye
   useEffect(() => {
@@ -172,5 +203,5 @@ export function useKhata({ token, onError, onUnauthorized }) {
     return () => { clearTimeout(retry); es?.close(); };
   }, [token, pull, flush]);
 
-  return { rows, queue, online, live, syncing, enqueue, pull, flush };
+  return { rows, activity, queue, online, live, syncing, enqueue, pull, flush };
 }

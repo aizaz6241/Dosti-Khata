@@ -21,10 +21,9 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api')) return;
   if (req.mode === 'navigate') {
     // Page: pehle net, na ho to save shuda
-    e.respondWith(
-      fetch(req).then((r) => { const copy = r.clone(); caches.open(CACHE).then((c) => c.put('/', copy)); return r; })
-        .catch(() => caches.match('/'))
-    );
+    const net = fetch(req).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put('/', copy)); } return r; });
+    const slow = new Promise((res) => setTimeout(res, 3500)).then(() => caches.match('/'));
+    e.respondWith(Promise.race([net.catch(() => caches.match('/')), slow.then((hit) => hit || net)]).then((r) => r || net));
     return;
   }
   e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((r) => {

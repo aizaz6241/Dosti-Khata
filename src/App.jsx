@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw } from 'lucide-react';
+import { Home as HomeIcon, BookOpen, BarChart3, Plus, UserRound, Receipt, ArrowUpRight, LogOut, KeyRound, Smartphone, HandCoins, Bell, BellOff, CloudOff, RefreshCw, History } from 'lucide-react';
 import { api, LS, thisMonth, haptic } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
 import { useKhata, applyQueue, newId } from './sync';
@@ -9,6 +9,8 @@ import Sheet from './components/Sheet';
 import EntryDetail from './components/EntryDetail';
 import { ExpenseForm, PaymentForm, PinForm } from './components/Forms';
 import { Home, Khata, Mahina, Lock, InstallGuide } from './screens';
+import ActivityView, { relevant } from './components/Activity';
+import SyncDot from './components/SyncDot';
 
 const COLORS = { aizaz: '#3D52D5', abdullah: '#D4931A' };
 const DEFAULT_PEOPLE = [{ id: 'aizaz', name: 'Aizaz' }, { id: 'abdullah', name: 'Abdullah' }];
@@ -33,14 +35,17 @@ export default function App() {
 
   const say = (t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2600); };
 
+  const pushRef = useRef(null);
   const logout = useCallback(() => {
-    ['khata.token', 'khata.rows', 'khata.me'].forEach(LS.del);
+    pushRef.current?.disable?.().catch?.(() => {});
+    ['khata.token', 'khata.rows', 'khata.me', 'khata.activity', 'khata.seenAct'].forEach(LS.del);
     setToken(null); setMe(null);
   }, []);
 
   const ids = useMemo(() => people.map((p) => p.id), [people]);
   const sync = useKhata({ token: token && me ? token : null, onError: (m) => say('Sync nahi hui: ' + m), onUnauthorized: logout });
   const pushState = usePush({ token, me });
+  pushRef.current = pushState;
 
   // Hisaab phone par hi banta hai (offline bhi)
   const data = useMemo(() => {
@@ -48,8 +53,17 @@ export default function App() {
     const rows = applyQueue(sync.rows, sync.queue, me, ids);
     const ledger = computeLedger(rows, ids);
     const months = [...new Set(rows.map((r) => String(r.date).slice(0, 7)))].sort().reverse();
-    return { people, me, ...ledger, stats: monthStats(rows, ids, month), months };
-  }, [sync.rows, sync.queue, me, ids, people, month]);
+    // Har entry ke saath us ki tabdeeliyon ki history
+    const activity = (sync.activity || []).filter((a) => relevant(a, me, ids));
+    const hist = {};
+    for (const a of [...activity].reverse()) (hist[a.key] ||= []).push(a);
+    const entries = ledger.entries.map((e) => {
+      const h = hist[e.clientId || e._id] || [];
+      return { ...e, history: h, edits: h.filter((a) => a.action === 'update') };
+    });
+    return { people, me, ...ledger, entries, activity, stats: monthStats(rows, ids, month), homeStats: monthStats(rows, ids, thisMonth()), months };
+  }, [sync.rows, sync.activity, sync.queue, me, ids, people, month]);
+  const [seenAct, setSeenAct] = useState(LS.get('khata.seenAct', 0));
   useEffect(() => { // naam server se (agar badle hon)
     api('/people').then((r) => { setPeople(r.people); LS.set('khata.people', r.people); }).catch(() => {});
   }, []);
@@ -97,6 +111,12 @@ export default function App() {
     const msg = entry ? 'Tabdeeli save ho gayi' : { payment: 'Payment save ho gayi', loan: 'Qarz save ho gaya', expense: 'Kharcha save ho gaya' }[body.type];
     say(navigator.onLine ? msg : msg + '. Net aate hi sync hogi');
   };
+  const confirm = async (entry) => {
+    await sync.enqueue({ kind: 'confirm', key: keyOf(entry) });
+    haptic(15);
+    setSheet(null);
+    say('Shukriya. Tasdeeq ho gayi ✓');
+  };
   const remove = async (entry) => {
     await sync.enqueue({ kind: 'delete', key: keyOf(entry) });
     setSheet(null);
@@ -118,6 +138,9 @@ export default function App() {
   const byId = Object.fromEntries(data.entries.map((e) => [e._id, e]));
   const open = (e) => setSheet({ kind: 'detail', entry: byId[e._id] || e });
   const pending = sync.queue.length;
+  const byKey = Object.fromEntries(data.entries.map((e) => [e.clientId || e._id, e]));
+  const unread = data.activity.filter((a) => a.by !== me && new Date(a.at).getTime() > seenAct).length;
+  const openActivity = () => { setTab('activity'); const t = Date.now(); setSeenAct(t); LS.set('khata.seenAct', t); };
   const add = (kind, opts = {}) => { haptic(); setSheet({ kind, ...opts }); };
   const balance = data.balance;
   const common = { me, otherId, names, colors: COLORS };
@@ -126,9 +149,11 @@ export default function App() {
     home: <Home data={data} {...common} onAdd={add} onOpen={open} goKhata={() => setTab('khata')}
       canInstall={!standalone && !installHidden} onInstall={install}
       onDismissInstall={() => { setInstallHidden(true); LS.set('khata.installHidden', true); }}
+      onConfirm={confirm}
       canNotify={pushState.supported && !pushState.on && !LS.get('khata.notifyHidden')} onNotify={notifyToggle} />,
     khata: <Khata data={data} {...common} onOpen={open} month={khataMonth} setMonth={setKhataMonth} />,
     mahina: <Mahina data={data} {...common} setMonth={setMonth} />,
+    activity: <ActivityView activity={data.activity} me={me} ids={ids} names={names} colors={COLORS} byKey={byKey} onOpen={open} />,
   };
 
   const s = sheet;
@@ -139,7 +164,7 @@ export default function App() {
   if (s?.kind === 'payment') { sheetTitle = 'Paise bheje'; sheetBody = <PaymentForm {...formProps} balance={balance} prefillClear={s.clear} onSave={(b) => save(b)} />; }
   if (s?.kind === 'detail') {
     sheetTitle = { payment: 'Payment', loan: 'Qarz', expense: 'Kharcha' }[s.entry.type];
-    sheetBody = <EntryDetail e={s.entry} {...common} byId={byId} onOpen={open} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })} />;
+    sheetBody = <EntryDetail e={s.entry} {...common} byId={byId} onOpen={open} onConfirm={confirm} onEdit={() => setSheet({ kind: 'edit', entry: s.entry })} />;
   }
   if (s?.kind === 'edit') {
     sheetTitle = 'Entry badlo';
@@ -209,12 +234,11 @@ export default function App() {
           <p className="hello">Assalam o Alaikum</p>
           <p className="hello-name">{names[me]}</p>
         </div>
-        {(!sync.online || pending > 0) && (
-          <span className={'sync-chip' + (sync.online ? ' busy' : '')}>
-            {sync.online ? <RefreshCw size={13} className="spin" /> : <CloudOff size={13} />}
-            {sync.online ? `${pending} sync ho rahi` : pending ? `Offline, ${pending} baqi` : 'Offline'}
-          </span>
-        )}
+        <SyncDot online={sync.online} live={sync.live} pending={pending} syncing={sync.syncing} />
+        <button className={'act-btn' + (tab === 'activity' ? ' on' : '')} onClick={openActivity} aria-label={unread ? `Activity, ${unread} nayi` : 'Activity'}>
+          <History size={21} />
+          {unread > 0 && <motion.span className="badge" initial={{ scale: 0 }} animate={{ scale: 1 }}>{unread > 9 ? '9+' : unread}</motion.span>}
+        </button>
         <button className="avatar" style={{ '--c': COLORS[me] }} onClick={() => setSheet({ kind: 'settings' })} aria-label="Mera account">{names[me][0]}</button>
       </header>
 

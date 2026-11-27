@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 
-const ENTRY_FIELDS = ['clientId', 'type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey'];
+const ENTRY_FIELDS = ['clientId', 'type', 'amount', 'note', 'category', 'date', 'time', 'paidBy', 'shares', 'split', 'from', 'to', 'createdBy', 'updatedBy', 'fileId', 'fileUrl', 'fileKey', 'confirmedAt', 'confirmedBy'];
 
 function mongoStore(uri) {
   const Entry = mongoose.models.Entry || mongoose.model('Entry', new mongoose.Schema(
@@ -27,6 +27,8 @@ function mongoStore(uri) {
       fileId: String,
       fileUrl: String,
       fileKey: String,
+      confirmedAt: String,
+      confirmedBy: String,
     },
     { timestamps: true, minimize: false }
   ));
@@ -42,6 +44,10 @@ function mongoStore(uri) {
   const Sub = mongoose.models.Sub || mongoose.model('Sub', new mongoose.Schema(
     { user: String, endpoint: { type: String, unique: true }, keys: Object, ua: String },
     { timestamps: true }
+  ));
+  const Activity = mongoose.models.Activity || mongoose.model('Activity', new mongoose.Schema(
+    { action: String, key: String, by: String, at: { type: Date, index: true }, before: Object, after: Object, changes: Array },
+    { minimize: false }
   ));
   const Meta = mongoose.models.Meta || mongoose.model('Meta', new mongoose.Schema({ _id: String, value: mongoose.Schema.Types.Mixed }));
 
@@ -62,6 +68,7 @@ function mongoStore(uri) {
     files: repo(File),
     subs: repo(Sub),
     meta: repo(Meta),
+    activity: { ...repo(Activity), recent: async (n) => Activity.find().sort({ at: -1 }).limit(n).lean() },
   };
 }
 
@@ -116,5 +123,9 @@ export function createStore() {
     files: fileRepo(path.join(dir, 'files.json'), null),
     subs: fileRepo(path.join(dir, 'subs.json'), null),
     meta: fileRepo(path.join(dir, 'meta.json'), null, true),
+    activity: (() => {
+      const r = fileRepo(path.join(dir, 'activity.json'), null);
+      return { ...r, recent: async (n) => (await r.all()).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, n) };
+    })(),
   };
 }

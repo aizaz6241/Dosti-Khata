@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.js';
 import { computeLedger, monthStats, other, dueBefore } from './ledger.js';
 import { setupPush } from './push.js';
+import { snapshot, diff, shareOf } from './activity.js';
 import { UTApi, UTFile } from 'uploadthing/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +25,9 @@ const publicPeople = () => PEOPLE.map(({ id, name }) => ({ id, name }));
 const store = createStore();
 const utapi = process.env.UPLOADTHING_TOKEN ? new UTApi({ token: process.env.UPLOADTHING_TOKEN }) : null;
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '8mb' }));
+if (process.env.DEBUG_REQ) app.use('/api/entries', (req, _res, next) => { console.log(new Date().toISOString().slice(11, 23), req.method, req.url, req.body?.amount ?? ''); next(); });
 
 /* ---------------- accounts ---------------- */
 const hashPin = (pin, salt) => crypto.scryptSync(String(pin), salt, 32).toString('hex');
@@ -189,29 +192,53 @@ app.post('/api/push/test', async (req, res, next) => {
 });
 
 // Nayi entry / tabdeeli par doosre ko batao
-async function tellOther(row, action) {
+async function tellOther(row, action, me, act) {
   try {
-    const to = other(row.createdBy || row.updatedBy, IDS);
-    const by = nameOf(row.createdBy || row.updatedBy);
+    const to = other(me, IDS);
+    const by = nameOf(me);
+    // Apna (sirf ek ka) kharcha: doosre ko na batao, jab tak pehle ya ab hissa na ho
+    if (act && row.type === 'expense' && !shareOf(act.before, IDS) && !shareOf(act.after, IDS)) return;
     let line;
     if (row.type === 'expense') {
       const debtor = other(row.paidBy, IDS);
       const owed = Number(row.shares?.[debtor] || 0);
-      if (owed <= 0) return; // apna kharcha, doosre ka kaam nahi
+      if (owed <= 0 && action === 'create') return; // apna kharcha, doosre ka kaam nahi
       line = row.paidBy === to ? `Aap ne ${nameOf(debtor)} ke liye ${rsTxt(owed)} diye` : `${nameOf(row.paidBy)} ne aap ke liye ${rsTxt(owed)} diye`;
     } else {
       const verb = row.type === 'loan' ? 'qarz diya' : 'bheje';
       line = row.from === to ? `Aap ne ${nameOf(row.to)} ko ${rsTxt(row.amount)} ${verb}` : `${nameOf(row.from)} ne aap ko ${rsTxt(row.amount)} ${verb}`;
     }
     if (row.note) line += `: ${row.note}`;
+    if (action === 'update' && act?.changes?.length) line = `${row.note || 'Entry'}: ${changeText(act.changes, to)}`;
+    if (action === 'delete') line = `${row.note || 'Entry'} (${rsTxt(shareOf(snapshot(row), IDS))}) hata di`;
     const ledger = computeLedger(await store.entries.all(), IDS);
     const title = { create: `${by} ne nayi entry likhi`, update: `${by} ne entry badli`, delete: `${by} ne entry delete ki` }[action];
     await push.notify(to, { title, body: `${line}. ${balanceLine(ledger.balance, to)}`, tag: 'entry-' + (row.clientId || row._id), url: '/' });
   } catch (e) { console.error('Notify nahi hua:', e.message); }
 }
-function changed(row, action, me) {
-  broadcast('change', { action, by: me, at: Date.now() });
-  tellOther(row, action);
+async function logActivity(action, before, after, me) {
+  const b = snapshot(before), a = snapshot(after);
+  const key = String((after || before).clientId || (after || before)._id);
+  const changes = action === 'update' ? diff(b, a, IDS) : [];
+  if (action === 'update' && !changes.length) return null; // kuch badla hi nahi
+  return store.activity.create({ action, key, by: me, at: new Date(), before: b, after: a, changes });
+}
+function changeText(changes, to) {
+  const parts = [];
+  for (const c of changes) {
+    if (c.f === 'share') parts.push(`${rsTxt(c.from)} se ${rsTxt(c.to)}`);
+    else if (c.f === 'paidBy' || c.f === 'from') parts.push(`ab ${c.to === to ? 'aap' : nameOf(c.to)} ne diye`);
+    else if (c.f === 'note') parts.push(`naam "${c.to}"`);
+    else if (c.f === 'when') parts.push('tareekh/time badla');
+    else if (c.f === 'shot') parts.push(c.to ? 'screenshot lagaya' : 'screenshot hataya');
+  }
+  return parts.join(', ');
+}
+async function changed(action, before, after, me) {
+  let act = null;
+  try { act = await logActivity(action, before, after, me); } catch (e) { console.error('Activity:', e.message); }
+  broadcast('change', { action, by: me, at: Date.now() }); // log ke baad, taake app ko poori cheez mile
+  if (action !== 'update' || act) await tellOther(after || before, action, me, act);
 }
 
 app.post('/api/pin', async (req, res, next) => {
@@ -219,7 +246,7 @@ app.post('/api/pin', async (req, res, next) => {
     const u = users.get(req.me);
     const { oldPin, newPin } = req.body || {};
     if (!pinOk(u, String(oldPin || ''))) return res.status(400).json({ error: 'Purana PIN ghalat hai.' });
-    if (!/^\d{4,6}$/.test(String(newPin || ''))) return res.status(400).json({ error: 'Naya PIN 4 se 6 hindson ka ho.' });
+    if (!/^\d{4}$/.test(String(newPin || ''))) return res.status(400).json({ error: 'Naya PIN 4 hindson ka ho.' });
     const salt = crypto.randomBytes(16).toString('hex');
     const updated = await store.users.update(u._id, { pinSalt: salt, pinHash: hashPin(newPin, salt) });
     users.set(u._id, updated);
@@ -288,7 +315,12 @@ const hasShot = (row) => !!(row.fileId || row.fileKey);
 
 // Kachi entries: hisaab app khud (phone par) banati hai, taake offline bhi chale
 app.get('/api/entries', async (req, res, next) => {
-  try { res.json({ me: req.me, people: publicPeople(), rows: await store.entries.all(), at: Date.now() }); }
+  try {
+    const [rows, all] = await Promise.all([store.entries.all(), store.activity.recent(300)]);
+    // Doosre ke apne (sirf us ke) kharchon ki activity na bhejo
+    const activity = all.filter((a) => a.by === req.me || shareOf(a.before, IDS) > 0 || shareOf(a.after, IDS) > 0);
+    res.json({ me: req.me, people: publicPeople(), rows, activity, at: Date.now() });
+  }
   catch (e) { next(e); }
 });
 
@@ -306,17 +338,33 @@ app.post('/api/entries', async (req, res, next) => {
   try {
     // Offline se dobara aayi hui entry do dafa na bane
     const clientId = /^[\w-]{8,64}$/.test(String(req.body.clientId || '')) ? req.body.clientId : undefined;
+    const data = clean(req.body, req.me);
     if (clientId) {
       const dup = await store.entries.find({ clientId });
-      if (dup) return res.status(200).json(dup);
+      if (dup) {
+        // Pehle wali koshish server tak pohanch gayi thi (jawab raste mein kho gaya).
+        // Ab jo naya data aaya hai woh "tabdeeli" ke taur par lagao, taake kuch na khoye.
+        if (dup.createdBy && dup.createdBy !== req.me) return res.status(200).json(dup);
+        const updated = await store.entries.update(String(dup._id), keepConfirm(dup, data));
+        res.status(200).json(updated);
+        changed('update', dup, updated, req.me);
+        return;
+      }
     }
-    const data = clean(req.body, req.me);
     if (data.type !== 'expense' && req.body.screenshot) Object.assign(data, await saveShot(req.body.screenshot, req.me));
     const row = await store.entries.create({ ...data, clientId, createdBy: req.me });
     res.status(201).json(row);
-    changed(row, 'create', req.me);
+    changed('create', null, row, req.me);
   } catch (e) { e.status = e.status || 400; next(e); }
 });
+
+// Raqam ya bhejne wala badla to "mil gaye" ki tasdeeq dobara chahiye
+function keepConfirm(row, data) {
+  if (row.confirmedAt && (Number(data.amount) !== Number(row.amount) || data.from !== row.from || data.type !== row.type)) {
+    data.confirmedAt = null; data.confirmedBy = null;
+  }
+  return data;
+}
 
 // Entry id ya clientId dono se mil jaye
 async function findEntry(key) {
@@ -341,7 +389,7 @@ app.put('/api/entries/:id', async (req, res, next) => {
   try {
     const row = await ownEntry(req, res);
     if (!row) return;
-    const data = clean(req.body, req.me);
+    const data = keepConfirm(row, clean(req.body, req.me));
     if (req.body.screenshot && data.type !== 'expense') {
       Object.assign(data, await saveShot(req.body.screenshot, req.me));
       if (hasShot(row)) await dropShot(row);
@@ -351,8 +399,25 @@ app.put('/api/entries/:id', async (req, res, next) => {
     }
     const updated = await store.entries.update(String(row._id), data);
     res.json(updated);
-    changed(updated, 'update', req.me);
+    changed('update', row, updated, req.me);
   } catch (e) { e.status = e.status || 400; next(e); }
+});
+
+// Paise lene wala tasdeeq kare: "haan, mil gaye"
+app.post('/api/entries/:id/confirm', async (req, res, next) => {
+  try {
+    const row = await findEntry(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Entry nahi mili.' });
+    if (row.type === 'expense' || row.to !== req.me) return res.status(403).json({ error: 'Sirf paise lene wala tasdeeq kar sakta hai.' });
+    if (row.confirmedAt) return res.json(row);
+    const updated = await store.entries.update(String(row._id), { confirmedAt: new Date().toISOString(), confirmedBy: req.me });
+    res.json(updated);
+    let act = null;
+    try { act = await store.activity.create({ action: 'confirm', key: String(row.clientId || row._id), by: req.me, at: new Date(), before: snapshot(row), after: snapshot(updated), changes: [] }); } catch {}
+    broadcast('change', { action: 'confirm', by: req.me, at: Date.now() });
+    const what = row.type === 'loan' ? 'qarz' : 'paise';
+    push.notify(row.from, { title: `${nameOf(req.me)} ne tasdeeq ki`, body: `${rsTxt(row.amount)} ${what} mil gaye${row.note ? ` (${row.note})` : ''}. ✓`, tag: 'confirm-' + (row.clientId || row._id), url: '/' }).catch(() => {});
+  } catch (e) { next(e); }
 });
 
 app.delete('/api/entries/:id', async (req, res, next) => {
@@ -362,7 +427,7 @@ app.delete('/api/entries/:id', async (req, res, next) => {
     await store.entries.remove(String(row._id));
     if (hasShot(row)) await dropShot(row);
     res.json({ ok: true });
-    changed({ ...row, updatedBy: req.me, createdBy: req.me }, 'delete', req.me);
+    changed('delete', row, null, req.me);
   } catch (e) { next(e); }
 });
 

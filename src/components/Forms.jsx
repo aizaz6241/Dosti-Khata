@@ -270,11 +270,11 @@ export function PinForm({ onSave, busy }) {
   const [newPin, setNew] = useState('');
   const [again, setAgain] = useState('');
   const [err, setErr] = useState('');
-  const digits = (v) => v.replace(/\D/g, '').slice(0, 6);
+  const digits = (v) => v.replace(/\D/g, '').slice(0, 4);
   const submit = async (ev) => {
     ev.preventDefault();
     setErr('');
-    if (newPin.length < 4) return setErr('Naya PIN kam se kam 4 hindson ka ho.');
+    if (newPin.length !== 4) return setErr('Naya PIN 4 hindson ka ho.');
     if (newPin !== again) return setErr('Naya PIN dono dafa ek jaisa likho.');
     try { await onSave(oldPin, newPin); } catch (e) { setErr(e.message); }
   };

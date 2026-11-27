@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Check, Paperclip, CloudUpload } from 'lucide-react';
+import { Check, Paperclip, CloudUpload, BadgeCheck } from 'lucide-react';
 import { cap, catOf, num, rs, timeLabel, view } from '../lib';
 
 export function StatusPill({ e }) {
@@ -15,6 +15,7 @@ export function StatusPill({ e }) {
 }
 
 export default function EntryRow({ e, me, names, colors, onOpen, index = 0 }) {
+  const needsMe = e.type !== 'expense' && !e.confirmedAt && e.to === me;
   const isPay = e.type !== 'expense';
   const cat = catOf(isPay ? e.type : e.category);
   const Icon = cat.icon;
@@ -35,7 +36,7 @@ export default function EntryRow({ e, me, names, colors, onOpen, index = 0 }) {
         <Icon size={19} />
       </span>
       <span className="entry-main">
-        <span className="entry-title">{title}{(e.fileId || e.fileUrl) && <Paperclip size={13} className="clip" aria-label="Screenshot laga hai" />}{e.pending && <CloudUpload size={14} className="clip pending" aria-label="Abhi sync honi hai" />}</span>
+        <span className="entry-title">{title}{(e.fileId || e.fileUrl) && <Paperclip size={13} className="clip" aria-label="Screenshot laga hai" />}{e.pending && <CloudUpload size={14} className="clip pending" aria-label="Abhi sync honi hai" />}{e.type !== 'expense' && e.confirmedAt && <BadgeCheck size={15} className="clip ok" aria-label="Mil gaye, tasdeeq shuda" />}{needsMe && <span className="edited-tag ask">tasdeeq karo</span>}{e.edits?.length > 0 && <span className="edited-tag">badli gayi</span>}</span>
         <span className="entry-sub"><span className="entry-time">{timeLabel(e)}</span>{v.line}</span>
       </span>
       <span className="entry-side">

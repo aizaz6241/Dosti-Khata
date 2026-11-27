@@ -61,6 +61,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 // Bari body sirf entries (screenshot) ke liye; baqi sab chhoti
+app.use('/api/hook', express.json({ limit: '16kb' })); // payout parchi chhoti hi hoti hai
 app.use(['/api/entries', '/api/ai'], express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '200kb' }));
 if (process.env.DEBUG_REQ) app.use('/api/entries', (req, _res, next) => { console.log(new Date().toISOString().slice(11, 23), req.method, req.url, req.body?.amount ?? ''); next(); });
@@ -205,7 +206,7 @@ app.all('/api/cron/tick', async (req, res, next) => {
 });
 
 // Business payout (bahar ke software se, sirf secret key ke saath)
-hookRoutes(app, store, { users: IDS, onMine: (me) => broadcast('mine', { at: Date.now() }, me), notify: (...a) => push.notify(...a) });
+hookRoutes(app, store, { users: IDS, prod: PROD, onMine: (me) => broadcast('mine', { at: Date.now() }, me), notify: (...a) => push.notify(...a) });
 
 // Is ke baad har cheez ke liye login zaroori
 app.use('/api', (req, res, next) => {
@@ -567,7 +568,7 @@ app.get(/^(?!\/api).*/, (_req, res) => res.set('Cache-Control', 'no-cache').send
 app.use((err, req, res, _next) => {
   const status = err.type === 'entity.too.large' ? 413 : err.type === 'entity.parse.failed' ? 400 : err.status || 500;
   if (status >= 500) console.error('Server ghalti:', req.method, req.path, err.message);
-  res.status(status).json({ error: status >= 500 ? 'Server mein masla hua, thori der baad koshish karein.' : status === 413 ? 'Bohat bari cheez bheji.' : err.message || 'Ghalat request.' });
+  res.status(status).json({ ok: false, status: 'error', error: status >= 500 ? 'Server mein masla hua, thori der baad koshish karein.' : status === 413 ? 'Bohat bari cheez bheji.' : err.message || 'Ghalat request.' });
 });
 
 store.ready

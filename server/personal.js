@@ -1,5 +1,6 @@
 // "Mera Hisaab" ke routes: sirf apna data (owner = login wala bande). Doosra banda kabhi nahi dekh sakta.
 import { ACCOUNT_KINDS, CURRENCIES, PTX_TYPES, EXPENSE_CATS, INCOME_CATS } from './money.js';
+import { rememberDeletedPayout } from './hook.js';
 
 const round = (n) => Math.round(Number(n) * 100) / 100;
 const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
@@ -111,6 +112,15 @@ export function personalRoutes(app, store, onChange) {
       if (!COLS[col]) return res.status(404).json({ error: 'Nahi mila.' });
       const data = COLS[col].clean(req.body || {});
       const clientId = /^[\w-]{8,64}$/.test(String(req.body?.clientId || '')) ? req.body.clientId : undefined;
+      // Backup se wapas aayi payout entry: us ki payout wali pehchan (reverse waghera) bhi wapas
+      if (col === 'ptx' && clientId?.startsWith('payout-')) {
+        const b = req.body;
+        Object.assign(data, {
+          payoutId: str(b.payoutId, 80) || undefined, payoutAmount: Number(b.payoutAmount) > 0 ? round(b.payoutAmount) : undefined,
+          source: str(b.source, 24) || 'payout', forMonth: /^\d{4}-(0[1-9]|1[0-2])$/.test(b.forMonth || '') ? b.forMonth : null,
+          reversed: !!b.reversed, reversedAt: b.reversed ? str(b.reversedAt, 40) : undefined, reverseReason: b.reversed ? str(b.reverseReason, 120) : undefined,
+        });
+      }
       if (col === 'prefs') {
         const all = await store.prefs.all({ owner: req.me });
         const old = all[0];
@@ -155,6 +165,7 @@ export function personalRoutes(app, store, onChange) {
           || (col === 'accounts' && (await store.links.all({ owner: req.me })).some((l) => l.accountId === key || l.accountId === String(row._id)));
         if (used) { await store[col].update(String(row._id), { archived: true }); onChange(req.me); return res.json({ ok: true, archived: true }); }
       }
+      if (col === 'ptx' && row.payoutId) await rememberDeletedPayout(store, row); // Bazario dobara bheje to wapas na aaye
       await store[col].remove(String(row._id));
       res.json({ ok: true }); onChange(req.me);
     } catch (e) { next(e); }

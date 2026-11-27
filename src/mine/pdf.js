@@ -103,7 +103,7 @@ export async function exportPdf({ name, mine, balances, people, worth, shared, m
     const where = t.type === 'transfer' ? `${a?.name || '?'} > ${acc(t.toAccountId)?.name || '?'}` : [a?.name, who].filter(Boolean).join(', ');
     const sign = t.type === 'transfer' ? '' : (t.type === 'adjust' ? Math.sign(t.amount) : TYPES[t.type]?.sign || Math.sign(t.amount)) > 0 ? '+' : '-';
     const kind = t.type === 'expense' || t.type === 'income' ? catMeta(t).label : t.synthetic ? `${other} khata` : TYPES[t.type].label;
-    return [`${t.date} ${t.time || ''}`, kind, where, `${sign}${fmt(Math.abs(t.amount), cur)}`, t.note || ''];
+    return [`${t.date} ${t.time || ''}`, kind + (t.reversed ? ' (REVERSED, total mein nahi)' : ''), where, `${sign}${fmt(Math.abs(t.amount), cur)}`, [t.note, t.forMonth ? `for ${t.forMonth}` : '', t.source && t.source !== 'payout' ? t.source : ''].filter(Boolean).join(' | ')];
   }) : [['Abhi koi len-den nahi', '', '', '', '']], { columnStyles: { 3: { halign: 'right' } } });
 
   if (shared?.entries?.length) {

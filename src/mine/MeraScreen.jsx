@@ -18,14 +18,16 @@ export function TxnRow({ t, accounts, contacts, onOpen, i = 0, otherName = 'Dost
   const cur = acc?.currency || 'PKR';
   const sign = t.type === 'transfer' ? 0 : t.type === 'adjust' ? Math.sign(t.amount) : TYPES[t.type]?.sign;
   const khataTitle = { expense: `${otherName} ke saath kharcha`, payment: t.type === 'khata_out' ? `${otherName} ko bheje` : `${otherName} se mile`, loan: t.type === 'khata_out' ? `${otherName} ko qarz` : `${otherName} se qarz` }[t.khataType];
+  const srcName = t.source && t.source !== 'payout' ? t.source.charAt(0).toUpperCase() + t.source.slice(1) : t.payoutId ? 'Payout' : '';
+  const fm = t.forMonth ? `${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][Number(t.forMonth.slice(5)) - 1]} ka payout` : '';
   const title = t.note || (t.synthetic ? khataTitle : t.type === 'expense' || t.type === 'income' ? m.label : `${TYPES[t.type].label}${who ? `: ${who.name}` : ''}`);
   const sub = t.type === 'transfer' ? `${acc?.name || '?'} se ${to?.name || '?'}${t.rate ? `, rate ${t.rate}` : ''}` : t.synthetic ? `Dosti khata, ${acc?.name || '?'}` : [who && t.note ? who.name : null, acc?.name, !acc && t.contactId ? 'Purana hisaab' : null].filter(Boolean).join(', ');
   return (
-    <motion.button className="entry" onClick={() => onOpen(t)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.02 }}>
+    <motion.button className={'entry' + (t.reversed ? ' reversed' : '')} onClick={() => onOpen(t)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.02 }}>
       <span className={'entry-icon m-' + (['lend', 'borrow', 'got_back', 'paid_back'].includes(t.type) ? 'loan' : sign > 0 ? 'in' : sign < 0 ? 'out' : 'mv')}><Icon size={18} /></span>
       <span className="entry-main">
-        <span className="entry-title">{title}{t.pending && <span className="edited-tag">sync baqi</span>}</span>
-        <span className="entry-sub"><span className="entry-time">{timeLabel(t)}</span>{sub}</span>
+        <span className="entry-title"><span className="et-text">{title}</span>{srcName && <span className="src-badge">{srcName}</span>}{t.reversed && <span className="rev-badge">Wapas (reverse)</span>}{t.pending && <span className="edited-tag">sync baqi</span>}</span>
+        <span className="entry-sub"><span className="entry-time">{timeLabel(t)}</span>{fm ? `${fm}, ` : ''}{sub}</span>
       </span>
       <span className="entry-side">
         <span className={'entry-amt ' + (sign > 0 ? 'mine' : sign < 0 ? 'theirs' : '')}>{sign > 0 ? '+' : sign < 0 ? '−' : ''}{money(Math.abs(t.amount), cur).replace('Rs ', '')}</span>
@@ -465,6 +467,7 @@ export function MeraTxns({ mine, allTx, rates, period, setPeriod, onPick, onOpen
   const tot = useMemo(() => {
     let i = 0, o = 0;
     for (const t of list) {
+      if (t.reversed) continue;
       const v = inPKR(t, mine.accounts, rates) || 0;
       if (IN_T.includes(t.type) || (t.type === 'adjust' && t.amount > 0)) i += v;
       else if (OUT_T.includes(t.type) || (t.type === 'adjust' && t.amount < 0)) o += v;
@@ -473,7 +476,7 @@ export function MeraTxns({ mine, allTx, rates, period, setPeriod, onPick, onOpen
   }, [list, mine.accounts, rates]);
   const dayNet = (items) => {
     let n = 0;
-    for (const t of items) { const v = inPKR(t, mine.accounts, rates) || 0; if (IN_T.includes(t.type)) n += v; else if (OUT_T.includes(t.type)) n -= v; else if (t.type === 'adjust') n += Math.sign(t.amount) * v; }
+    for (const t of items) { if (t.reversed) continue; const v = inPKR(t, mine.accounts, rates) || 0; if (IN_T.includes(t.type)) n += v; else if (OUT_T.includes(t.type)) n -= v; else if (t.type === 'adjust') n += Math.sign(t.amount) * v; }
     return Math.round(n);
   };
   return (

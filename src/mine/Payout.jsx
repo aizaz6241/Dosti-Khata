@@ -21,7 +21,8 @@ export default function PayoutSheet({ accounts, say }) {
   };
   const off = async () => { setBusy(true); try { await api('/me/hook', { method: 'DELETE' }); setSt({ active: false }); setKey(''); say('Connection band, purani key ab kaam nahi karegi'); } catch (e) { say(e.message); } setBusy(false); };
   const a = st?.accountId ? accName(st.accountId) : null;
-  const sample = JSON.stringify({ id: 'payout-2026-11', amount: 250, currency: a?.currency || 'USDT', date: '2026-11-30', note: 'November payout' }, null, 2);
+  const sample = JSON.stringify({ id: 'bz_payout_123456', amount: 125.5, currency: a?.currency || 'USDT', date: '2026-12-01T14:20:00+05:00', forMonth: '2026-11', note: 'Bazario payout — November 2026', source: 'bazario' }, null, 2);
+  const revSample = JSON.stringify({ id: 'bz_payout_123456', reason: 'Wrong amount', date: '2026-12-02T10:00:00+05:00' }, null, 2);
   if (!st) return <p className="hint center">Load ho raha hai...</p>;
   if (st.offline) return <p className="hint center">Is ke liye internet chahiye.</p>;
   return (
@@ -51,11 +52,14 @@ export default function PayoutSheet({ accounts, say }) {
           <code className="code" onClick={() => copy(url)}>POST {url}</code>
           <code className="code">Authorization: Bearer {key || 'dk_...(aap ki key)'}{'\n'}Content-Type: application/json</code>
           <code className="code pre">{sample}</code>
-          <p className="hint"><b>id</b> har payout ka apna (dobara na aaye), <b>amount</b> zaroori, <b>currency</b> account wali ({a?.currency || 'USDT'}), <b>date</b> aur <b>note</b> agar chaho. Jawab 201 = likh diya, 200 duplicate = pehle se tha.</p>
+          <p className="hint"><b>id</b> har payout ka apna, <b>amount</b> (2 decimal tak), <b>currency</b> {a?.currency || 'USDT'}, <b>forMonth</b> (YYYY-MM), <b>date</b>, <b>note</b>, <b>source</b>. Jawab: 201 created, 200 duplicate, 409 conflict (same id, alag amount).</p>
+          <p className="hint">Ghalat payout wapas: <b>POST {url}/reverse</b></p>
+          <code className="code pre">{revSample}</code>
+          <p className="hint">Server jagao: <b>GET {location.origin}/api/hook/health</b>. Haal dekho: <b>GET {url}/&lt;id&gt;</b> (key ke saath). Check ke liye body mein <b>"test": true</b> (save nahi hota).</p>
           <button type="button" className="btn ghost wide" onClick={() => copy(`curl -X POST ${url} -H "Authorization: Bearer ${key || 'KEY'}" -H "Content-Type: application/json" -d '${JSON.stringify(JSON.parse(sample))}'`)}><Copy size={16} /> Poori misaal (curl) copy karo</button>
           <div className="form-actions">
             <button type="button" className="btn danger" disabled={busy} onClick={off}><Trash2 size={16} /> Connection band karo</button>
-            {!key && <button type="button" className="btn ghost" disabled={busy} onClick={() => setSt({ ...st, active: false })}><KeyRound size={16} /> Nayi key</button>}
+            {!key && <button type="button" className="btn ghost" disabled={busy} onClick={() => setSt({ ...st, active: false })}><KeyRound size={16} /> Key badlo (purani foran band)</button>}
           </div>
         </div>
       )}

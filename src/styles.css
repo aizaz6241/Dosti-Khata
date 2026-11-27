@@ -1018,3 +1018,12 @@ body[data-mode="dosti"] .acc-opt.add { border-color: #A9CDBE; }
 .more-grid { grid-template-columns: repeat(3, 1fr); }
 .tx-tot b { font-size: clamp(13px, 3.7vw, 16px); overflow: visible; text-overflow: clip; letter-spacing: -0.01em; }
 .tx-tot div { padding: 10px 9px; min-width: 0; }
+
+/* Payout: source badge, reverse wali entry kati hui */
+.src-badge { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; margin-left: 6px; border-radius: 99px; font-size: 10.5px; font-weight: 800; color: #B97A06; background: #FFF1D1; vertical-align: 2px; }
+.rev-badge { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; margin-left: 6px; border-radius: 99px; font-size: 10.5px; font-weight: 800; color: #D93F3F; background: #FDE7E5; vertical-align: 2px; }
+.entry.reversed .et-text, .entry.reversed .entry-amt { text-decoration: line-through; text-decoration-thickness: 1.5px; opacity: .55; }
+.entry.reversed .entry-icon { filter: grayscale(1); opacity: .6; }
+.entry-title:has(.et-text) { display: flex; align-items: center; min-width: 0; }
+.entry-title .et-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-title .src-badge, .entry-title .rev-badge, .entry-title .edited-tag { flex: none; }

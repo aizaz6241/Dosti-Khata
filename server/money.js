@@ -13,6 +13,7 @@ export const idOf = (x) => String(x.clientId || x._id);
 
 // Account par asar: + paise aaye, - paise gaye
 export function effects(t) {
+  if (t.reversed) return []; // wapas (reverse) hua payout: kisi total mein nahi
   const a = Number(t.amount) || 0;
   switch (t.type) {
     case 'expense': return [[t.accountId, -a]];
@@ -48,6 +49,7 @@ export function peopleLedger(contacts, txns, accounts) {
   const cur = Object.fromEntries(accounts.map((a) => [idOf(a), a.currency || 'PKR']));
   const out = Object.fromEntries(contacts.map((c) => [idOf(c), { balance: {}, history: [] }]));
   for (const t of [...txns].sort(order)) {
+    if (t.reversed) continue;
     const id = t.contactId && String(t.contactId);
     if (!id || !(id in out)) continue;
     const d = personEffect(t);
@@ -96,7 +98,7 @@ export function monthReport(txns, accounts, monthKey, rates = {}, shared = []) {
       if (!r.biggest || v > r.biggest.pkr) r.biggest = { ...s, type: 'expense', pkr: round(v) };
     }
     for (const t of txns) {
-      if (String(t.date).slice(0, 7) !== m) continue;
+      if (String(t.date).slice(0, 7) !== m || t.reversed) continue;
       const v = toPKR(t.amount, cur[t.accountId] || 'PKR', rates);
       if (v == null) continue;
       if (t.type === 'expense') {
@@ -201,7 +203,7 @@ export function rangeReport(txns, accounts, from, to, rates = {}, shared = [], p
     };
     for (const s of shared) if (inR(s.date)) { const v = Number(s.amount) || 0; r.khata += v; addSpend({ ...s, type: 'expense' }, v, s.category); }
     for (const x of txns) {
-      if (!inR(x.date) || x.synthetic) continue;
+      if (!inR(x.date) || x.synthetic || x.reversed) continue;
       const v = toPKR(x.amount, cur[x.accountId] || 'PKR', rates);
       if (v == null) continue;
       if (x.type === 'expense') addSpend(x, v, x.category || 'other');

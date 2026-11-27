@@ -5,6 +5,7 @@ import { api, LS, thisMonth, haptic } from './lib';
 import { computeLedger, monthStats } from '../server/ledger.js';
 import { useKhata, applyQueue, newId } from './sync';
 import { usePush } from './push';
+import { chime } from './chime';
 import Sheet from './components/Sheet';
 import EntryDetail from './components/EntryDetail';
 import { ExpenseForm, PaymentForm, PinForm } from './components/Forms';
@@ -44,7 +45,7 @@ export default function App() {
   }, []);
 
   const ids = useMemo(() => people.map((p) => p.id), [people]);
-  const sync = useKhata({ token: token && me ? token : null, onError: (m) => say('Sync nahi hui: ' + m), onUnauthorized: logout });
+  const sync = useKhata({ token: token && me ? token : null, me, onError: (m) => say('Sync nahi hui: ' + m), onUnauthorized: logout, onRemote: () => { chime(); haptic([30, 40, 30]); } });
   const pushState = usePush({ token, me });
   pushRef.current = pushState;
 
@@ -214,7 +215,7 @@ export default function App() {
         </div>
         <button className="set-row" onClick={notifyToggle} disabled={pushState.busy}>
           {pushState.on ? <BellOff size={18} /> : <Bell size={18} />}
-          <span className="set-text">{pushState.on ? 'Notifications band karo' : 'Notifications on karo'}<small>{pushState.on ? 'Is phone par notifications aa rahi hain' : 'Nayi entry, raat 10 baje, aur mahine ki 1 se 5 tareekh ki yaad-dihani'}</small></span>
+          <span className="set-text">{pushState.on ? 'Notifications band karo' : 'Notifications on karo'}<small>{pushState.on ? 'Is phone par aa rahi hain. Android par alag awaaz: Settings > Apps > Dosti Khata > Notifications' : 'Nayi entry, raat 10 baje, aur mahine ki 1 se 5 tareekh ki yaad-dihani'}</small></span>
         </button>
         {pushState.on && <button className="set-row" onClick={async () => { const n = await pushState.test(); say(n ? 'Test notification bheji' : 'Notification nahi gayi'); }}><Bell size={18} /> Test notification bhejo</button>}
         <button className="set-row" onClick={() => setSheet({ kind: 'pin' })}><KeyRound size={18} /> PIN badlo</button>

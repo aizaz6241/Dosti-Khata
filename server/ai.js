@@ -12,7 +12,8 @@ const SCHEMA = {
     payer: { type: 'STRING', enum: ['speaker', 'other', 'unknown'], description: 'Kis ne paise diye/bheje/qarz diya.' },
     amount: { type: 'NUMBER', nullable: true, description: 'Kul raqam jo di gayi. Na pata ho to null.' },
     forWhom: { type: 'STRING', enum: ['both_equal', 'speaker_only', 'other_only', 'custom', 'unknown'], description: 'Sirf expense ke liye: kharcha kis kis ka tha.' },
-    nonPayerShare: { type: 'NUMBER', nullable: true, description: 'Sirf forWhom=custom: jis ne NAHI diye us ka hissa.' },
+    nonPayerShare: { type: 'NUMBER', nullable: true, description: 'Sirf forWhom=custom: jis ne NAHI diye us ka hissa (agar saaf bataya ho).' },
+    peopleCount: { type: 'INTEGER', nullable: true, description: 'Agar kharcha N bandon/logon mein barabar tha ("5 bandon ke the") to N, warna null.' },
     category: { type: 'STRING', enum: CATEGORIES },
     note: { type: 'STRING', description: 'Chhota naam, kis cheez ka (max 5 lafz). Na pata ho to khali.' },
     dayOffset: { type: 'INTEGER', description: '0 = aaj, -1 = kal (guzra hua), -2 = parson. Na bataya ho to 0.' },
@@ -20,7 +21,7 @@ const SCHEMA = {
     assumed: { type: 'ARRAY', items: { type: 'STRING', enum: ['payer', 'amount', 'forWhom', 'category', 'date'] }, description: 'Jo cheezein bataayi nahi gayin aur andaze se bhari.' },
     question: { type: 'STRING', description: 'Agar kuch samajh na aaye to chhota sawal Roman Urdu mein, warna khali.' },
   },
-  required: ['transcript', 'kind', 'payer', 'amount', 'forWhom', 'category', 'note', 'dayOffset', 'time', 'assumed', 'question'],
+  required: ['transcript', 'kind', 'payer', 'amount', 'forWhom', 'peopleCount', 'category', 'note', 'dayOffset', 'time', 'assumed', 'question'],
 };
 
 function instructions(speaker, other) {
@@ -38,7 +39,8 @@ payer: "maine / main ne / mein ne / I" = speaker. "${other} ne / us ne / he" = o
 "${other} ne mere liye diye" = payer other, forWhom speaker_only. "Maine ${other} ke liye diye" = payer speaker, forWhom other_only.
 
 forWhom (sirf expense): both_equal = aadha aadha / dono ka / half / milke. speaker_only = sirf ${speaker} ka (mera). other_only = sirf ${other} ka.
-custom = alag alag hisse (tab nonPayerShare = jis ne paise nahi diye us ka hissa). Na bataya ho to both_equal rakho aur assumed mein "forWhom" daalo.
+custom = alag alag hisse (tab nonPayerShare = jis ne paise nahi diye us ka hissa).
+Agar kaha "N bandon / N logon / N doston ke the / N mein baanta" (jaise "kamre wale ko 1000 diye 5 bandon ke the") to forWhom=custom, peopleCount=N. Hissa khud hisaab mat karo, sirf N batao. Na bataya ho to both_equal rakho aur assumed mein "forWhom" daalo.
 "Maine apne liye liya / mera apna tha" jab payer speaker = speaker_only (ye apna kharcha hai).
 
 amount: KUL raqam jo di gayi. Hindse aur lafz dono samjho: do sau=200, dhai sau=250, dedh sau=150, sawa sau=125, sarhe teen sau=350, hazaar=1000, dedh hazaar=1500, dhai hazaar=2500, 2k=2000, "pachas"=50.
@@ -134,6 +136,13 @@ function mentions(text, who, otherName) {
 // Delete, badlo, zero karo jaise hukum: AI ko kabhi entry na banane do
 const COMMAND = /(^|[^\p{L}])(delete|del|remove|mitao|mita do|mitado|hatao|hata do|zero|khatam kar|badal|badlo|edit|update|cancel|reset|ignore|undo|wapas lo|reverse)(?=$|[^\p{L}])/iu;
 
+// "5 bandon" / "paanch log": ginti jumle mein thi?
+function countSaid(text, n) {
+  const t = String(text || '').toLowerCase();
+  if (new RegExp(`(^|\\D)${n}(\\D|$)`).test(t)) return true;
+  return t.split(/[^\p{L}]+/u).some((w) => UNITS[w] === n);
+}
+
 const round = (n) => Math.round(Number(n) * 100) / 100;
 const addDays = (day, n) => { const d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -157,7 +166,7 @@ export function toForm(ai, { me, otherId, today, typedText, otherName = '' }) {
   const said = typedNums.length ? typedNums : [...numbersIn(ai.transcript), ...wordNumbers(ai.transcript)];
   if (!(amount > 0) || amount > 10000000 || !said.some((n) => Math.abs(n - amount) < 0.01)) { amount = null; missing.push('amount'); assumed.delete('amount'); }
 
-  let split = 'half', owed;
+  let split = 'half', owed, people;
   if (kind === 'expense') {
     const nonPayer = payer === me ? 'other' : 'speaker';
     const fw = ai.forWhom;
@@ -166,7 +175,10 @@ export function toForm(ai, { me, otherId, today, typedText, otherName = '' }) {
     else if (payer && (fw === 'speaker_only' || fw === 'other_only')) split = 'self';
     else if (fw === 'custom') {
       const share = Number(ai.nonPayerShare);
-      if (share > 0 && amount && share <= amount && said.some((n) => Math.abs(n - share) < 0.01)) { split = 'custom'; owed = round(share); }
+      const n = Number(ai.peopleCount);
+      // N bande: hissa code khud nikalta hai (AI nahi). N jumle mein hona chahiye.
+      if (Number.isInteger(n) && n >= 2 && n <= 30 && amount && countSaid(source, n)) { split = 'custom'; owed = round(amount / n); people = n; }
+      else if (share > 0 && amount && share <= amount && said.some((x) => Math.abs(x - share) < 0.01)) { split = 'custom'; owed = round(share); }
       else { split = 'half'; assumed.add('forWhom'); }
     }
   }
@@ -181,7 +193,7 @@ export function toForm(ai, { me, otherId, today, typedText, otherName = '' }) {
     kind,
     form: kind && {
       type: kind,
-      ...(kind === 'expense' ? { paidBy: payer, split, owed, category } : { from: payer }),
+      ...(kind === 'expense' ? { paidBy: payer, split, owed, people, category } : { from: payer }),
       amount, note, date: addDays(today, off), time,
     },
     assumed: [...assumed],

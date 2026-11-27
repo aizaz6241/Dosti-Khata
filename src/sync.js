@@ -68,7 +68,7 @@ function mergeBody(a, b) {
   return m;
 }
 
-export function useKhata({ token, onError, onUnauthorized }) {
+export function useKhata({ token, me, onError, onUnauthorized, onRemote }) {
   const [rows, setRows] = useState(() => LS.get(ROWS, null));
   const [activity, setActivity] = useState(() => LS.get('khata.activity', []));
   const [queue, setQueue] = useState([]);
@@ -90,8 +90,8 @@ export function useKhata({ token, onError, onUnauthorized }) {
     })();
   }
 
-  const cb = useRef({ onError, onUnauthorized });
-  cb.current = { onError, onUnauthorized };
+  const cb = useRef({ onError, onUnauthorized, onRemote, me });
+  cb.current = { onError, onUnauthorized, onRemote, me };
 
   const saveQueue = useCallback(async (q) => {
     qRef.current = q;
@@ -171,7 +171,7 @@ export function useKhata({ token, onError, onUnauthorized }) {
     const on = () => { setOnline(true); flush(); };
     const off = () => setOnline(false);
     const vis = () => document.visibilityState === 'visible' && flush();
-    const msg = (e) => e.data?.type === 'refresh' && pull();
+    const msg = (e) => { if (e.data?.type === 'refresh') { pull(); if (e.data.chime) cb.current.onRemote?.({ push: true }); } };
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
     document.addEventListener('visibilitychange', vis);
@@ -193,7 +193,10 @@ export function useKhata({ token, onError, onUnauthorized }) {
     const open = () => {
       es = new EventSource('/api/stream?t=' + encodeURIComponent(token));
       es.addEventListener('hello', () => { setLive(true); setOnline(true); flush(); });
-      es.addEventListener('change', () => pull());
+      es.addEventListener('change', (ev) => {
+        pull();
+        try { const d = JSON.parse(ev.data || '{}'); if (d.by && d.by !== cb.current.me) cb.current.onRemote?.(d); } catch { /* */ }
+      });
       es.onerror = () => {
         setLive(false);
         if (es.readyState === EventSource.CLOSED) { clearTimeout(retry); retry = setTimeout(open, 5000); }

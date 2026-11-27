@@ -149,4 +149,9 @@ export default [
   ['abdullah ne pachees sau ka bill diya aadha', { k: 'expense', p: 'B', a: 2500, s: 'half', c: 'bill' }],
   ['main ne abdullah ko jazzcash pe 1,250 send kiye', { k: 'payment', p: 'A', a: 1250 }],
   ['abdullah ne mujhe 50 diye change wapas', { k: 'payment', p: 'B', a: 50 }],
+  // --- N bandon mein ---
+  ['abdullah ne kamre wale ko 1000 diye 5 bandon ke the', { k: 'expense', p: 'B', a: 1000, s: 'custom', o: 200 }],
+  ['maine 1200 ka khana liya 4 logon ka tha', { k: 'expense', p: 'A', a: 1200, s: 'custom', o: 300, c: 'khana' }],
+  ['abdullah ne 900 diye teen dost the', { k: 'expense', p: 'B', a: 900, s: 'custom', o: 300 }],
+  ['kiraya 15000 abdullah ne diya, 3 bande rehte hain', { k: 'expense', p: 'B', a: 15000, s: 'custom', o: 5000 }],
 ];

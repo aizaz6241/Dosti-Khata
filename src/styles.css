@@ -180,7 +180,7 @@ h1, h2, h3, p { margin: 0; }
 .form { display: grid; gap: 14px; }
 .amount-field { display: flex; align-items: baseline; justify-content: center; gap: 6px; background: var(--surface); border-radius: 20px; padding: 14px 16px; }
 .amount-cur { font-family: var(--display); font-size: 24px; font-weight: 600; color: var(--muted); }
-.amount-field input { min-width: 1.2ch; max-width: 260px; border: 0; outline: 0; background: none; font-family: var(--display); font-size: 46px; font-weight: 700; letter-spacing: -0.03em; text-align: center; font-variant-numeric: tabular-nums; }
+
 .text-field, .date-field { width: 100%; height: 50px; border: 1.5px solid var(--line); background: var(--surface); border-radius: 14px; padding: 0 14px; font-size: 16px; outline: 0; }
 .text-field:focus, .date-field:focus { border-color: var(--pine-2); }
 .date-field { width: auto; min-width: 160px; height: 44px; }
@@ -450,3 +450,34 @@ h1, h2, h3, p { margin: 0; }
 .lock .who-grid { margin-top: 10px; }
 .brand { position: absolute; bottom: calc(var(--safe-b) + 22px); left: 0; right: 0; text-align: center; font-size: 12.5px; color: var(--muted); letter-spacing: .02em; }
 .brand b { font-family: var(--display); color: var(--pine); letter-spacing: .06em; }
+
+/* ---------- v8: amount box + calculator ---------- */
+.amount-wrap { display: grid; gap: 8px; }
+.amount-row { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 64px; }
+.amount-cur { font-size: calc(var(--amt) * .5); line-height: 1; }
+.amount-box { position: relative; display: inline-block; min-width: 1.2ch; max-width: 78vw; font-family: var(--display); font-size: var(--amt); font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.amount-sizer { display: block; visibility: hidden; white-space: pre; padding: 0 .08em; height: 1.25em; overflow: hidden; }
+.amount-field .amount-box input { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink);
+  font: inherit; letter-spacing: inherit; line-height: 1.25; text-align: center; -webkit-appearance: none; appearance: none; border-radius: 0; overflow: visible; }
+.amount-field .amount-box input::placeholder { color: #B9C3BE; }
+.calc-toggle { justify-self: center; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 99px; background: var(--surface); color: var(--pine); font-weight: 700; font-size: 13.5px; border: 1.5px solid var(--line); }
+.calc-toggle.on { background: var(--pine); color: #fff; border-color: var(--pine); }
+.calc { background: var(--surface); border-radius: 18px; padding: 12px; display: grid; gap: 10px; margin-top: 2px; }
+.calc-screen { background: var(--paper); border-radius: 13px; padding: 10px 14px; display: grid; justify-items: end; gap: 2px; min-height: 64px; }
+.calc-expr { font-family: var(--display); font-size: 22px; font-weight: 600; color: var(--ink); word-break: break-all; text-align: right; }
+.calc-res { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--ok); }
+.calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ck { height: 50px; border-radius: 13px; background: var(--paper); font-family: var(--display); font-size: 22px; font-weight: 600; display: grid; place-items: center; color: var(--ink); }
+.ck.op { background: #E3F0EA; color: var(--pine); font-size: 24px; }
+.ck.del { color: var(--muted); }
+.ck.clear { color: var(--due); font-size: 18px; font-weight: 800; }
+.ck.use { grid-column: span 3; display: flex; gap: 6px; align-items: center; justify-content: center; background: var(--pine); color: #fff; font-family: var(--body); font-size: 14.5px; font-weight: 700; }
+.ck.use:disabled { opacity: .45; }
+
+.custom-box { display: grid; gap: 10px; background: var(--surface); border-radius: 16px; padding: 12px; }
+.custom-box .custom-one input { background: var(--paper); }
+.people-split { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; font-weight: 700; color: var(--muted); }
+.stepper { display: flex; align-items: center; gap: 4px; background: var(--paper); border-radius: 12px; padding: 4px; }
+.stepper button { width: 36px; height: 36px; border-radius: 10px; background: var(--surface); display: grid; place-items: center; color: var(--pine); }
+.stepper b { min-width: 30px; text-align: center; font-family: var(--display); font-size: 18px; color: var(--ink); }
+.people-note { font-size: 13px; font-weight: 600; color: var(--pine); }

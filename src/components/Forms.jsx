@@ -1,25 +1,46 @@
-import { useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Trash2, ImagePlus, X, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import Calculator from './Calculator';
+import { Trash2, ImagePlus, X, Sparkles, Calculator as CalcIcon, Minus, Plus as PlusIcon } from 'lucide-react';
 import { CATEGORIES, compressImage, shotUrl, rs, today, nowTime } from '../lib';
 
-function AmountInput({ value, onChange, autoFocus, label }) {
+function AmountInput({ value, onChange, autoFocus, label, calc = true }) {
+  const [showCalc, setShowCalc] = useState(false);
+  const len = String(value || '0').length;
+  const size = len > 9 ? 30 : len > 7 ? 36 : 46; // lambi raqam: font khud chhota
   return (
-    <label className="amount-field">
-      {label && <span className="amount-label">{label}</span>}
-      <span className="amount-row">
-        <span className="amount-cur">Rs</span>
-        <input
-          inputMode="decimal"
-          placeholder="0"
-          value={value}
-          autoFocus={autoFocus}
-          style={{ width: `${Math.max(1, String(value || '0').length) + 0.6}ch` }}
-          onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
-          aria-label={label || 'Raqam'}
-        />
-      </span>
-    </label>
+    <div className="amount-wrap">
+      <label className="amount-field">
+        {label && <span className="amount-label">{label}</span>}
+        <span className="amount-row" style={{ '--amt': size + 'px' }}>
+          <span className="amount-cur">Rs</span>
+          {/* Chaurai chhupe hue text se, input us ke upar: kisi phone par nahi katega */}
+          <span className="amount-box">
+            <span className="amount-sizer" aria-hidden="true">{value || '0'}</span>
+            <input
+              inputMode="decimal"
+              placeholder="0"
+              value={value}
+              autoFocus={autoFocus}
+              onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))}
+              aria-label={label || 'Raqam'}
+            />
+          </span>
+        </span>
+      </label>
+      {calc && (
+        <button type="button" className={'calc-toggle' + (showCalc ? ' on' : '')} onClick={() => setShowCalc((v) => !v)} aria-expanded={showCalc}>
+          <CalcIcon size={17} /> {showCalc ? 'Calculator band karo' : 'Calculator'}
+        </button>
+      )}
+      <AnimatePresence initial={false}>
+        {showCalc && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: 'hidden' }}>
+            <Calculator onUse={(r) => { onChange(String(r)); setShowCalc(false); }} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -93,6 +114,10 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
   const [custom, setCustom] = useState(seed && initSplit === 'custom' ? String(seed.calc?.owed ?? seed.owed ?? '') : '');
   const [date, setDate] = useState(seed?.date || today());
   const [time, setTime] = useState(seed?.time || nowTime());
+  const [people, setPeople] = useState(seed?.people || 0);
+  // N bandon mein barabar: doosre ka hissa = kul / N
+  const splitAmong = (n) => { setPeople(n); const a = Number(amount) || 0; if (a > 0) setCustom(String(Math.round((a / n) * 100) / 100)); };
+  useEffect(() => { if (people > 0) { const a = Number(amount) || 0; setCustom(a > 0 ? String(Math.round((a / people) * 100) / 100) : ''); } }, [amount]); // eslint-disable-line
 
   const other = names[otherId];
   const debtor = paidBy === me ? otherId : me;
@@ -153,10 +178,21 @@ export function ExpenseForm({ me, otherId, names, colors, initial, prefill, ai, 
           ))}
         </div>
         {split === 'custom' && (
-          <label className="custom-one">
-            <span>{debtor === me ? 'Mera' : `${other} ka`} hissa</span>
-            <input inputMode="decimal" value={custom} placeholder="0" autoFocus onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ''))} />
-          </label>
+          <div className="custom-box">
+            <label className="custom-one">
+              <span>{debtor === me ? 'Mera' : `${other} ka`} hissa</span>
+              <input inputMode="decimal" value={custom} placeholder="0" autoFocus={!prefill} onChange={(e) => { setPeople(0); setCustom(e.target.value.replace(/[^\d.]/g, '')); }} />
+            </label>
+            <div className="people-split">
+              <span>Ya kitne bandon mein barabar?</span>
+              <div className="stepper">
+                <button type="button" onClick={() => splitAmong(Math.max(2, (people || 2) - 1))} aria-label="Kam"><Minus size={16} /></button>
+                <b>{people || '?'}</b>
+                <button type="button" onClick={() => splitAmong(Math.min(30, (people || 1) + 1))} aria-label="Zyada"><PlusIcon size={16} /></button>
+              </div>
+            </div>
+            {people > 0 && amt > 0 && <p className="people-note">{rs(amt)} ÷ {people} bande = {rs(amt / people)} har ek ka</p>}
+          </div>
         )}
       </div>
 

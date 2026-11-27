@@ -41,8 +41,11 @@ self.addEventListener('push', (e) => {
     badge: '/icons/badge-96.png',
     tag: d.tag || undefined,
     renotify: !!d.tag,
+    vibrate: [70, 50, 70, 50, 180], // Dosti Khata ka apna pattern (Android)
+    silent: false,
+    timestamp: Date.now(),
     data: { url: d.url || '/' },
-  }).then(() => self.clients.matchAll({ type: 'window' }).then((cs) => cs.forEach((c) => c.postMessage({ type: 'refresh' })))));
+  }).then(() => self.clients.matchAll({ type: 'window' }).then((cs) => cs.forEach((c) => c.postMessage({ type: 'refresh', chime: true })))));
 });
 
 self.addEventListener('notificationclick', (e) => {

@@ -64,3 +64,13 @@ test('"Abdullah ko X diye" ka matlab: maine diye', () => {
   // lekin "Abdullah ne" ko maine na samjhe
   assert.equal(run({ payer: 'speaker', amount: 200 }, 'abdullah ne 200 diye').form.paidBy, null);
 });
+
+test('N bandon mein barabar: hissa code nikalta hai', () => {
+  const r = run({ forWhom: 'custom', peopleCount: 5, amount: 1000, nonPayerShare: 999 }, 'abdullah ne kamre wale ko 1000 diye 5 bandon ke the');
+  assert.equal(r.form.split, 'custom'); assert.equal(r.form.owed, 200); assert.equal(r.form.people, 5);
+  const w = run({ forWhom: 'custom', peopleCount: 4, amount: 1000 }, 'abdullah ne 1000 diye chaar log the');
+  assert.equal(w.form.owed, 250);
+  // N jumle mein nahi: andaza nahi
+  const bad = run({ forWhom: 'custom', peopleCount: 7, amount: 1000 }, 'abdullah ne 1000 diye sab ke liye');
+  assert.equal(bad.form.split, 'half'); assert.ok(bad.assumed.includes('forWhom'));
+});

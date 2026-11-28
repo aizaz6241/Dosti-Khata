@@ -149,3 +149,20 @@ test('mahina ka muqabla pichle asal mahine se (1 tareekh wala kiraya bhi)', () =
   const r = rangeReport(tx, [{ clientId: 'c' }], '2026-04-01', '2026-04-30', {}, [], { from: '2026-03-01', to: '2026-03-31' });
   assert.equal(r.prev.spent, 15000); assert.equal(r.change, 33);
 });
+
+test('qarz budget/kharche mein nahi; dollar qarz rupay mein', () => {
+  const tx = [
+    { type: 'expense', amount: 3000, accountId: 'c', date: '2026-11-10', category: 'khana' },
+    { type: 'lend', amount: 5000, accountId: 'c', contactId: 'ali', date: '2026-11-11' },
+    { type: 'lend', amount: 100, currency: 'USD', contactId: 'zain', date: '2026-11-12' }, // bina account, dollar
+  ];
+  const acc = [{ clientId: 'c', currency: 'PKR' }];
+  const r = monthReport(tx, acc, '2026-11', { USD: 280 });
+  assert.equal(r.spent, 3000); // budget sirf kharche se: 20000 - 3000 = 17000 baqi
+  assert.equal(r.lent, 5000 + 28000);
+  const rr = rangeReport(tx, acc, '2026-11-01', '2026-11-30', { USD: 280 });
+  assert.equal(rr.spent, 3000); assert.equal(rr.lent, 33000);
+  const p = peopleLedger([{ clientId: 'ali' }, { clientId: 'zain' }], tx, acc);
+  assert.deepEqual(p.zain.balance, { USD: 100 });
+  assert.deepEqual(accountBalances([{ clientId: 'c', opening: 10000 }], tx), { c: 2000 }); // dollar wala account se nahi kata
+});

@@ -60,6 +60,7 @@ const COLS = {
         out.contactId = str(b.contactId, 64);
         if (!out.contactId) throw bad('Kis bande ke saath? chuno.');
         out.old = !!b.old && !out.accountId; // purana qarz, kisi account se nahi
+        if (!out.accountId) out.currency = CURRENCIES.includes(b.currency) ? b.currency : 'PKR'; // bina account: qarz kis currency mein (USD, USDT...)
       }
       return out;
     },

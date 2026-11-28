@@ -122,10 +122,11 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
   const [time, setTime] = useState(initial?.time || nowTime());
   // Purana qarz: pehle ka len-den, kisi account se paise nahi katenge
   const [old, setOld] = useState(initial ? isLoan(initial.type) && !initial.accountId : !accounts.some((a) => !a.archived));
+  const [loanCur, setLoanCur] = useState(initial?.currency && !initial?.accountId ? initial.currency : 'PKR'); // bina account qarz: dollar waghera
 
   const acc = accounts.find((a) => idOf(a) === accountId);
   const toAcc = accounts.find((a) => idOf(a) === toAccountId);
-  const cur = (isLoan(type) && old) ? 'PKR' : acc?.currency || 'PKR';
+  const cur = (isLoan(type) && old) ? loanCur : acc?.currency || 'PKR';
   const crossCur = type === 'transfer' && toAcc && toAcc.currency !== cur;
   // Rate hamesha "1 bahar wali currency = kitne PKR" (ya PKR na ho to 1 bhejne wali = kitni pohanchne wali)
   const toCur = toAcc?.currency || 'PKR';
@@ -150,7 +151,7 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
     if (accountId && !(isLoan(type) && old)) LS.set('khata.lastAcc', accountId);
     const noAcc = isLoan(type) && old;
     const body = { type, amount: type === 'adjust' ? adjSign * amt : amt, accountId: noAcc ? '' : accountId, note, date, time };
-    if (noAcc) body.old = true;
+    if (noAcc) { body.old = true; body.currency = loanCur; }
     if (type === 'expense' || type === 'income') body.category = category;
     if (type === 'transfer') { body.toAccountId = toAccountId; body.toAmount = crossCur ? Number(toAmount) : amt; if (crossCur && Number(rate) > 0) body.rate = Number(rate); }
     if (isLoan(type)) body.contactId = contactId;
@@ -216,9 +217,17 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
           <span className="field-label">Ye kab ka hai?</span>
           <div className="seg two" role="radiogroup">
             <button type="button" role="radio" aria-checked={!old} className={'seg-opt plain' + (!old ? ' on' : '')} onClick={() => setOld(false)}>Abhi ka</button>
-            <button type="button" role="radio" aria-checked={old} className={'seg-opt plain' + (old ? ' on' : '')} onClick={() => setOld(true)}>Purana (pehle ka)</button>
+            <button type="button" role="radio" aria-checked={old} className={'seg-opt plain' + (old ? ' on' : '')} onClick={() => setOld(true)}>Purana / bina account</button>
           </div>
-          {old && <p className="hint">Pehle ka hisaab hai, is liye kisi account se paise nahi katenge. Neeche asal tareekh daal do (yaad na ho to aaj ki theek hai).</p>}
+          {old && <p className="hint">Kisi account se paise nahi katenge, sirf bande ke khate mein likha jayega. Asal tareekh neeche daal do (yaad na ho to aaj ki theek hai).</p>}
+          {old && (
+            <>
+              <span className="field-label">Qarz kis currency mein?</span>
+              <div className="chips wrap cur-pick">
+                {CURRENCIES.map((c) => <button type="button" key={c} className={'chip' + (loanCur === c ? ' on' : '')} onClick={() => setLoanCur(c)}>{c === 'PKR' ? 'Rupay (PKR)' : c === 'USD' ? 'Dollar (USD)' : c}</button>)}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -253,6 +262,7 @@ export function TxnForm({ initial, preset, accounts, contacts, balances, rates =
           {type === 'expense' && `${acc?.name} se ${money(amt, cur)} kharch`}
           {type === 'income' && `${acc?.name} mein ${money(amt, cur)} aaye`}
           {type === 'transfer' && `${acc?.name} se ${toAcc?.name} mein ${money(crossCur ? Number(toAmount) : amt, toAcc?.currency)}`}
+          {isLoan(type) && old && cur !== 'PKR' && amt > 0 && (rates[cur] ? `≈ ${money(amt * rates[cur])} aaj ke rate par (1 ${cur} = ${money(rates[cur])}). ` : `${cur} ka rate abhi nahi mila, net aate hi rupay mein dikhega. `)}
           {isLoan(type) && old && 'Purana: '}
           {type === 'lend' && `${who} ne aap ko ${money(amt, cur)} wapas dene hain`}
           {type === 'got_back' && `${who} se ${money(amt, cur)} wapas mile`}
@@ -330,8 +340,8 @@ export function ContactForm({ initial, onSave, onDelete }) {
   );
 }
 
-export function RatesForm({ prefs, accounts, live, onSave }) {
-  const used = useMemo(() => [...new Set(accounts.filter((a) => !a.archived && a.currency !== 'PKR').map((a) => a.currency))], [accounts]);
+export function RatesForm({ prefs, accounts, live, extra = [], onSave }) {
+  const used = useMemo(() => [...new Set([...accounts.filter((a) => !a.archived && a.currency !== 'PKR').map((a) => a.currency), ...extra.filter((c) => c !== 'PKR')])], [accounts, extra]);
   const [rates, setRates] = useState(() => ({ ...(prefs?.rates || {}) }));
   const [manual, setManual] = useState(() => [...(prefs?.manual || [])]);
   if (!used.length) return <p className="hint">Abhi sab accounts rupay (PKR) mein hain. Rate ki zaroorat nahi.</p>;

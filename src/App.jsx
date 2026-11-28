@@ -181,7 +181,8 @@ export default function App() {
   }, [mode]);
 
   // Live rate (USDT: Binance P2P) — jab koi doosri currency ka account ho
-  const needLive = mera.mine.accounts.some((a) => !a.archived && a.currency && a.currency !== 'PKR');
+  const loanCurs = [...new Set(mera.mine.ptx.filter((t) => !t.accountId && t.currency && t.currency !== 'PKR').map((t) => t.currency))];
+  const needLive = true; // dollar/USDT rate hamesha taza (qarz ya account mein kabhi bhi lag sakta hai)
   useEffect(() => {
     if (!token || !needLive) return;
     let stop = false;
@@ -460,7 +461,7 @@ export default function App() {
   if (s?.kind === 'contact') {
     const c = mera.mine.contacts.find((x) => idOf(x) === idOf(s.row)) || s.row;
     sheetTitle = c.name;
-    sheetBody = <ContactDetail c={c} ledger={mera.people[idOf(c)]} mine={mera.mine}
+    sheetBody = <ContactDetail rates={mera.rates} c={c} ledger={mera.people[idOf(c)]} mine={mera.mine}
       onOpen={(t) => setSheet({ kind: 'ptx', row: mera.mine.ptx.find((x) => idOf(x) === idOf(t)) || t, back: s })}
       onAdd={(type) => setSheet({ kind: 'ptx', preset: { type, contactId: idOf(c) }, back: s })} onEdit={() => setSheet({ kind: 'contact-edit', row: c })} />;
   }
@@ -474,7 +475,7 @@ export default function App() {
   }
   if (s?.kind === 'rates') {
     sheetTitle = 'Currency rate';
-    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} live={live} onSave={(b) => savePrefs(b, 'Rate save ho gaya')} />;
+    sheetBody = <RatesForm prefs={mera.mine.prefs} accounts={mera.mine.accounts} extra={loanCurs} live={live} onSave={(b) => savePrefs(b, 'Rate save ho gaya')} />;
   }
   if (s?.kind === 'range') { sheetTitle = 'Muddat chuno'; sheetBody = <RangePicker value={s.value} onApply={(p) => { s.onApply(p); setSheet(null); }} />; }
   if (s?.kind === 'pdf') {

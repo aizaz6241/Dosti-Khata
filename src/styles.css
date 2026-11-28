@@ -1027,3 +1027,7 @@ body[data-mode="dosti"] .acc-opt.add { border-color: #A9CDBE; }
 .entry-title:has(.et-text) { display: flex; align-items: center; min-width: 0; }
 .entry-title .et-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entry-title .src-badge, .entry-title .rev-badge, .entry-title .edited-tag { flex: none; }
+
+/* Dollar wala qarz: rupay mein kitna */
+.contact-bal .conv { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.cur-pick { margin-bottom: 4px; }

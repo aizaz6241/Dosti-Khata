@@ -15,7 +15,7 @@ export function TxnRow({ t, accounts, contacts, onOpen, i = 0, otherName = 'Dost
   const acc = accounts.find((a) => idOf(a) === t.accountId);
   const to = accounts.find((a) => idOf(a) === t.toAccountId);
   const who = contacts.find((c) => idOf(c) === t.contactId);
-  const cur = acc?.currency || 'PKR';
+  const cur = acc?.currency || t.currency || 'PKR';
   const sign = t.type === 'transfer' ? 0 : t.type === 'adjust' ? Math.sign(t.amount) : TYPES[t.type]?.sign;
   const khataTitle = { expense: `${otherName} ke saath kharcha`, payment: t.type === 'khata_out' ? `${otherName} ko bheje` : `${otherName} se mile`, loan: t.type === 'khata_out' ? `${otherName} ko qarz` : `${otherName} se qarz` }[t.khataType];
   const srcName = t.source && t.source !== 'payout' ? t.source.charAt(0).toUpperCase() + t.source.slice(1) : t.payoutId ? 'Payout' : '';
@@ -168,6 +168,7 @@ function BudgetHome({ report, budget, catBudgets, otherName, onGo, onBudget }) {
       </div>
       {hasCat && <CatBudgetList catBudgets={catBudgets} byCat={report.byCat} max={3} />}
       {!budget && !hasCat && <button className="bt-cta" onClick={onBudget}><Target size={18} /><span><b>Mahine ka budget rakho</b><small>Kul had aur har category (khana, safar, family...) ki alag had</small></span><ChevronRight size={16} /></button>}
+      {report.lent > 0 && <p className="mm-note">Is mahine {money(report.lent)} qarz diya: yeh kharcha nahi, budget mein nahi gina (wapas aana hai).</p>}
       {report.khata > 0 && <p className="mm-note">Kharche mein {otherName} wale khate ka aap ka hissa {money(report.khata)} bhi shamil hai</p>}
     </section>
   );
@@ -271,7 +272,7 @@ export function MeraAccounts({ mine, balances, worth, rates, live, otherName, on
 }
 
 /* ---------------- Analytics ---------------- */
-const inPKR = (t, accounts, rates) => toPKR(Math.abs(t.amount), accounts.find((a) => idOf(a) === t.accountId)?.currency || 'PKR', rates);
+const inPKR = (t, accounts, rates) => toPKR(Math.abs(t.amount), accounts.find((a) => idOf(a) === t.accountId)?.currency || t.currency || 'PKR', rates);
 export function MeraAnalytics({ mine, period, setPeriod, onPick, reportRange, reportFor, budget, catBudgets = {}, onBudget, otherName, onPdf, minDate }) {
   const r = reportRange(period);
   const t = today();
@@ -519,7 +520,8 @@ export function MeraTxns({ mine, allTx, rates, period, setPeriod, onPick, onOpen
 }
 
 /* ---------------- Khate (log) ---------------- */
-export function MeraPeople({ mine, people, shared, otherName, me, onOpenContact, onNewContact, onOpenShared }) {
+const withPKR = (v, cur, rates) => { const p = cur !== 'PKR' ? toPKR(v, cur, rates) : null; return money(v, cur) + (p != null ? ` (≈ ${money(p)})` : ''); };
+export function MeraPeople({ mine, people, shared, otherName, me, rates = {}, onOpenContact, onNewContact, onOpenShared }) {
   const contacts = mine.contacts.filter((c) => !c.archived);
   const b = shared?.balance || { amount: 0 };
   const sharedLine = !b.amount ? 'Hisaab barabar' : b.from === me ? `Aap ne ${money(b.amount)} dene hain` : `${otherName} ne aap ko ${money(b.amount)} dene hain`;
@@ -549,7 +551,7 @@ export function MeraPeople({ mine, people, shared, otherName, me, onOpenContact,
                 <span className="who-av sm" style={{ '--c': '#5B6BD8' }}>{c.name[0]}</span>
                 <span className="entry-main">
                   <span className="entry-title">{c.name}</span>
-                  <span className={'entry-sub ' + (bal[0]?.[1] > 0 ? 'pos' : bal.length ? 'neg' : '')}>{bal.length === 0 ? 'Hisaab barabar' : bal.map(([cur, v]) => (v > 0 ? `Aap ko ${money(v, cur)} dene hain` : `Aap ne ${money(-v, cur)} dene hain`)).join(', ')}</span>
+                  <span className={'entry-sub ' + (bal[0]?.[1] > 0 ? 'pos' : bal.length ? 'neg' : '')}>{bal.length === 0 ? 'Hisaab barabar' : bal.map(([cur, v]) => (v > 0 ? `Aap ko ${withPKR(v, cur, rates)} dene hain` : `Aap ne ${withPKR(-v, cur, rates)} dene hain`)).join(', ')}</span>
                 </span>
                 <ChevronRight size={18} className="muted-i" />
               </button>
@@ -635,7 +637,7 @@ export function AccountDetail({ a, balance, mine, allTx, rates, otherName, onOpe
 }
 
 /* ---------------- Banda ---------------- */
-export function ContactDetail({ c, ledger, mine, onOpen, onAdd, onEdit }) {
+export function ContactDetail({ c, ledger, mine, rates = {}, onOpen, onAdd, onEdit }) {
   const bal = Object.entries(ledger?.balance || {});
   const hist = [...(ledger?.history || [])].reverse();
   const remind = () => {
@@ -652,7 +654,8 @@ export function ContactDetail({ c, ledger, mine, onOpen, onAdd, onEdit }) {
         <div>
           <p className="detail-title big">{c.name}</p>
           {bal.length === 0 ? <p className="detail-date">Hisaab barabar hai</p> : bal.map(([cur, v]) => (
-            <p key={cur} className={'contact-bal ' + (v > 0 ? 'pos' : 'neg')}>{v > 0 ? `Aap ko ${money(v, cur)} wapas dene hain` : `Aap ne ${money(-v, cur)} wapas dene hain`}</p>
+            <p key={cur} className={'contact-bal ' + (v > 0 ? 'pos' : 'neg')}>{v > 0 ? `Aap ko ${money(v, cur)} wapas dene hain` : `Aap ne ${money(-v, cur)} wapas dene hain`}
+              {cur !== 'PKR' && toPKR(v, cur, rates) != null && <small className="conv">≈ {money(Math.abs(toPKR(v, cur, rates)))} aaj ke rate par (1 {cur} = {money(rates[cur])})</small>}</p>
           ))}
         </div>
       </div>

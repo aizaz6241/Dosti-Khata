@@ -99,7 +99,7 @@ export function monthReport(txns, accounts, monthKey, rates = {}, shared = []) {
     }
     for (const t of txns) {
       if (String(t.date).slice(0, 7) !== m || t.reversed) continue;
-      const v = toPKR(t.amount, cur[t.accountId] || 'PKR', rates);
+      const v = toPKR(t.amount, cur[t.accountId] || t.currency || 'PKR', rates);
       if (v == null) continue;
       if (t.type === 'expense') {
         r.spent += v; r.count++;
@@ -204,7 +204,7 @@ export function rangeReport(txns, accounts, from, to, rates = {}, shared = [], p
     for (const s of shared) if (inR(s.date)) { const v = Number(s.amount) || 0; r.khata += v; addSpend({ ...s, type: 'expense' }, v, s.category); }
     for (const x of txns) {
       if (!inR(x.date) || x.synthetic || x.reversed) continue;
-      const v = toPKR(x.amount, cur[x.accountId] || 'PKR', rates);
+      const v = toPKR(x.amount, cur[x.accountId] || x.currency || 'PKR', rates);
       if (v == null) continue;
       if (x.type === 'expense') addSpend(x, v, x.category || 'other');
       else if (x.type === 'income') {
